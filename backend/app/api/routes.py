@@ -319,8 +319,9 @@ def web_research(p: WebResearch):
     started = time.perf_counter()
     try:
         r = gemini_client.web_research(q)
-    except gemini_client.GeminiUnavailable:
-        raise HTTPException(503, 'Live web research is temporarily unavailable. Please use the source-grounded answer above.')
+    except gemini_client.GeminiUnavailable as exc:
+        reason = ' (Google Search quota for this API key is used up)' if '429' in str(exc) else ''
+        raise HTTPException(503, f'Live web research is temporarily unavailable{reason}. Please use the source-grounded answer above.')
     sources = []
     for s in r['sources']:
         domain_url = f"https://{s['domain']}/" if s.get('domain') else s['url']

@@ -9,7 +9,9 @@ import statistics
 import time
 from pathlib import Path
 
-from app.ai import groq_client
+from collections import Counter
+
+from app.ai import llm
 from app.api.routes import _registry
 from app.database import SessionLocal, init_db
 from app.retrieval.rag import answer, retrieve
@@ -56,29 +58,32 @@ def main():
 
     ret = [r["retrieval_ms"] for r in rows]
     ext = [r["extractive_total_ms"] for r in rows]
-    llm = [r["ai_total_ms"] for r in rows if r["ai_mode"] == "groq"]
+    ai = [r["ai_total_ms"] for r in rows if r["ai_mode"] in ("gemini", "groq")]
     chunks, driver = count()
     summary = {
-        "queries": len(rows), "chunks_indexed": chunks, "vector_driver": driver, "llm_model": groq_client.active_model(),
+        "queries": len(rows), "chunks_indexed": chunks, "vector_driver": driver, "llm_models": {p: llm.active_model(p) for p in llm.configured_providers()},
+        "answers_by_provider": dict(Counter(r["ai_mode"] for r in rows)),
         "retrieval_avg_ms": round(statistics.mean(ret), 1), "retrieval_p95_ms": round(pct(ret, 95), 1),
         "extractive_answer_avg_ms": round(statistics.mean(ext), 1),
-        "ai_answer_avg_ms": round(statistics.mean(llm), 1) if llm else None,
-        "ai_answer_p95_ms": round(pct(llm, 95), 1) if llm else None, "ai_calls": len(llm),
+        "ai_answer_avg_ms": round(statistics.mean(ai), 1) if ai else None,
+        "ai_answer_p95_ms": round(pct(ai, 95), 1) if ai else None, "ai_calls": len(ai),
         "grounded_answers": sum(r["grounded"] for r in rows), "refusals": sum(not r["grounded"] for r in rows),
     }
+    llm_label = "provider chain " + " → ".join(llm.configured_providers() + ["demo"]) + "; answers by provider: " + ", ".join(
+        f"{k} {v}" for k, v in summary["answers_by_provider"].items()) + "; models: " + ", ".join(f"{k} `{v}`" for k, v in summary["llm_models"].items() if v)
     DOCS.mkdir(exist_ok=True)
     (DOCS / "performance.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=2), encoding="utf-8")
     lines = [
         "## Performance (20 sample queries on the real pilot index)", "",
-        f"Measured {time.strftime('%Y-%m-%d %H:%M')} on the development laptop · {chunks} chunks · {driver} · LLM: Groq `{summary['llm_model'] or 'n/a'}`.", "",
+        f"Measured {time.strftime('%Y-%m-%d %H:%M')} on the development laptop · {chunks} chunks · {driver} · LLM: {llm_label}.", "",
         "| Metric | Value |", "|---|---|",
         f"| Average retrieval latency (median of 5 runs per query) | {summary['retrieval_avg_ms']} ms |",
         f"| 95th percentile retrieval latency | {summary['retrieval_p95_ms']} ms |",
         f"| Average extractive answer latency (no LLM) | {summary['extractive_answer_avg_ms']} ms |",
-        f"| Average AI answer latency (retrieval + Groq, {summary['ai_calls']} LLM calls) | {summary['ai_answer_avg_ms']} ms |",
+        f"| Average AI answer latency (retrieval + LLM, {summary['ai_calls']} LLM answers) | {summary['ai_answer_avg_ms']} ms |",
         f"| 95th percentile AI answer latency | {summary['ai_answer_p95_ms']} ms |",
         f"| Grounded answers / refusals (\"Not available in indexed sources.\") | {summary['grounded_answers']} / {summary['refusals']} |", "",
-        "Refusals happen without an LLM call when retrieval finds nothing (≈ retrieval time only), so they are excluded from the AI-latency average. AI latency is dominated by the Groq network round trip; on the free tier some calls wait for a 429 rate-limit retry (up to 3 s), and a call that still fails falls back to the extractive answer (mode = extractive), which raises the p95.", "",
+        "Refusals happen without an LLM call when retrieval finds nothing (≈ retrieval time only), so they are excluded from the AI-latency average. AI latency is dominated by the Groq network round trip; on free tiers some calls wait for a 429 rate-limit retry, and a call that still fails falls back to the extractive answer (mode = extractive), which raises the p95.", "",
         "| # | Query | Retrieval (ms) | AI answer (ms) | Mode | Grounded | Sources |", "|---|---|---|---|---|---|---|",
     ]
     lines += [f"| {i} | {r['query']} | {r['retrieval_ms']:.1f} | {r['ai_total_ms']:.1f} | {r['ai_mode']} | {'Yes' if r['grounded'] else 'No (refused)'} | {r['sources']} |"

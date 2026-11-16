@@ -40,7 +40,7 @@ If the API is not running, the UI falls back to the first-defence offline mode (
 |---|---|---|
 | `LLM_PROVIDER` | `gemini` | Primary AI provider (`gemini` or `groq`); the other is the fallback, then the grounded demo answer |
 | `GEMINI_API_KEY` | – | Google Gemini key (primary provider + experimental web research) |
-| `GEMINI_MODEL` | `gemini-flash-latest` | Gemini model; missing models fall back to `GEMINI_FALLBACK_MODELS` |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | Gemini model; missing models fall back to `GEMINI_FALLBACK_MODELS` |
 | `GROQ_API_KEY` | – | Groq fallback for context-only answers and change summaries. Without any key, answers are extractive |
 | `GROQ_MODEL` | – | Preferred Groq model; retired models fall back to `GROQ_FALLBACK_MODELS` automatically |
 | `MONITOR_ENABLED` | `true` | Start the APScheduler monitoring job |

@@ -99,8 +99,11 @@ def test_gemini_retry_and_model_fallback(monkeypatch, actual):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-missing")
     monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-good")
+    monkeypatch.setattr(gemini_client, "DEFAULT_MODEL", "gemini-good")
     monkeypatch.setenv("GEMINI_RETRY_SECONDS", "0")
     monkeypatch.setattr(gemini_client, "_working_model", None)
+    monkeypatch.setattr(gemini_client, "_missing_models", set())
+    monkeypatch.setattr(gemini_client, "_cooldown_until", {})
     fake = _FakeModels([errors.ClientError(404, {"error": {"message": "model not found", "status": "NOT_FOUND"}}),
                         errors.ClientError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
                         "Answer [S1]"])
@@ -132,3 +135,20 @@ def test_web_research_endpoint(client, monkeypatch, actual):
     assert d["provider"] == "gemini" and d["experimental"] and [s["domain"] for s in d["sources"]] == ["mait.ac.in", "shiksha.com"]
     assert d["sources"][0]["verification"]["status"] == "OFFICIAL"
     actual("503 without key; mait.ac.in listed first")
+
+
+@pytest.mark.meta("T57", "AI providers", "A model still returning 429 after its retry is skipped for 60 s", "2nd call goes straight to the fallback model (no repeat 429)")
+def test_gemini_429_cooldown(monkeypatch, actual):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-busy")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-ok")
+    monkeypatch.setenv("GEMINI_RETRY_SECONDS", "0")
+    monkeypatch.setattr(gemini_client, "DEFAULT_MODEL", "gemini-ok")
+    monkeypatch.setattr(gemini_client, "_missing_models", set())
+    monkeypatch.setattr(gemini_client, "_cooldown_until", {})
+    quota = lambda: errors.ClientError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    fake = _FakeModels([quota(), quota(), "first", "second"])
+    monkeypatch.setattr(gemini_client, "_client", lambda timeout: type("C", (), {"models": fake})())
+    assert gemini_client.chat("s", "u") == "first" and gemini_client.chat("s", "u") == "second"
+    assert fake.calls == ["gemini-busy", "gemini-busy", "gemini-ok", "gemini-ok"]
+    actual(f"calls={fake.calls}")

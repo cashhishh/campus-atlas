@@ -12,10 +12,13 @@ import time
 from ..config import env_int
 
 _PLACEHOLDERS = {"", "your_gemini_api_key_here"}
-DEFAULT_MODEL = "gemini-flash-latest"
-DEFAULT_FALLBACKS = "gemini-2.5-flash,gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"  # fast, stable Flash model (verified 16 Nov 2026)
+DEFAULT_FALLBACKS = "gemini-3.1-flash-lite"
+DEFAULT_TIMEOUT_S = 10.0  # the Gemini API rejects deadlines below 10 s  # per call; a hanging model falls through to the next model / Groq quickly
 _working_model: str | None = None
 _no_thinking_config: set[str] = set()  # models that reject a thinking budget
+_missing_models: set[str] = set()  # models that returned 404 (retired / not available to this key)
+_cooldown_until: dict[str, float] = {}  # models still rate-limited after a retry are skipped for a while
 
 
 class GeminiUnavailable(RuntimeError):
@@ -33,11 +36,13 @@ def is_configured() -> bool:
 
 def candidate_models() -> list[str]:
     configured = os.getenv("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
-    ordered = [_working_model, configured, *os.getenv("GEMINI_FALLBACK_MODELS", DEFAULT_FALLBACKS).split(",")]
+    # Preferred order every call; only permanently missing models are skipped, so a transient
+    # 503/timeout on the preferred model does not pin all later calls to the fallback.
+    ordered = [configured, DEFAULT_MODEL, *os.getenv("GEMINI_FALLBACK_MODELS", DEFAULT_FALLBACKS).split(",")]
     seen, out = set(), []
     for m in ordered:
         m = (m or "").strip()
-        if m and m not in seen:
+        if m and m not in seen and m not in _missing_models and _cooldown_until.get(m, 0) <= time.time():
             seen.add(m)
             out.append(m)
     return out
@@ -51,7 +56,7 @@ def _client(timeout_s: float):
     from google import genai
     from google.genai import types
 
-    return genai.Client(api_key=api_key(), http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
+    return genai.Client(api_key=api_key(), http_options=types.HttpOptions(timeout=int(max(10.0, timeout_s) * 1000)))
 
 
 def _config(model: str, system: str, max_tokens: int, temperature: float, tools=None):
@@ -69,7 +74,7 @@ def _status(exc: Exception) -> int | None:
     return getattr(exc, "code", None)
 
 
-def _call(system: str, user: str, max_tokens: int, temperature: float, timeout: float, tools=None):
+def _call(system: str, user: str, max_tokens: int, temperature: float, timeout: float, tools=None, stop_on_429: bool = False):
     """Try each candidate model; one short retry on 429 / timeout / 5xx. Returns (response, model)."""
     global _working_model
     from google.genai import errors
@@ -95,15 +100,22 @@ def _call(system: str, user: str, max_tokens: int, temperature: float, timeout: 
                     continue
                 if code == 404 or (code == 400 and "model" in msg and ("not found" in msg or "not supported" in msg)):
                     last = f"model {model} unavailable"
+                    _missing_models.add(model)
                     break  # try next model
-                if code in (429, 500, 502, 503, 504) and attempt == 0:
-                    time.sleep(env_int("GEMINI_RETRY_SECONDS", 2))
+                if code == 429 and stop_on_429:  # quota is per account: other models will not help
+                    raise GeminiUnavailable("Gemini returned HTTP 429 (quota exhausted)") from exc
+                if code == 429 and attempt == 0:  # rate limited: one short retry on the same model
+                    time.sleep(env_int("GEMINI_RETRY_SECONDS", 1))
                     continue
+                if code == 429:  # still rate limited / quota used up: skip this model for a while
+                    _cooldown_until[model] = time.time() + env_int("GEMINI_COOLDOWN_SECONDS", 60)
+                if code in (429, 500, 502, 503, 504):  # overloaded / deadline: try the next model
+                    last = f"Gemini returned HTTP {code}"
+                    break
                 raise GeminiUnavailable(f"Gemini returned HTTP {code}") from exc
             except Exception as exc:  # timeouts / network errors raised by the HTTP layer
-                if attempt == 0 and "timeout" in type(exc).__name__.lower() + str(exc).lower():
-                    continue
-                raise GeminiUnavailable(f"Gemini request failed: {type(exc).__name__}") from exc
+                last = f"Gemini request failed: {type(exc).__name__}"
+                break
     raise GeminiUnavailable(last)
 
 
@@ -119,6 +131,7 @@ def _text(response) -> str:
 
 
 def chat(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1, timeout: float = 25.0) -> str:
+    timeout = max(10.0, min(timeout, float(os.getenv("GEMINI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_S))))
     response, _ = _call(system, user, max_tokens, temperature, timeout)
     return _text(response)
 
@@ -134,7 +147,8 @@ def web_research(question: str, timeout: float = 30.0) -> dict:
     """Gemini + Google Search grounding. Returns {answer, sources:[{title, url, domain}], model}."""
     from google.genai import types
 
-    response, model = _call(WEB_SYSTEM, question, 1024, 0.2, timeout, tools=[types.Tool(google_search=types.GoogleSearch())])
+    response, model = _call(WEB_SYSTEM, question, 1024, 0.2, timeout, tools=[types.Tool(google_search=types.GoogleSearch())],
+                            stop_on_429=True)
     answer = _text(response)
     sources, seen = [], set()
     try:

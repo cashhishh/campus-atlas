@@ -1,8 +1,8 @@
 # CampusAtlas — Test Results
 
-Generated automatically by `pytest` on 2026-11-16 18:37 (offline: temporary DB, no network, no Groq).
+Generated automatically by `pytest` on 2026-11-16 18:50 (offline: temporary DB, no network, no Groq).
 
-**56 / 56 tests passed.**
+**57 / 57 tests passed.**
 
 | Test ID | Module | Description | Expected | Actual | Pass/Fail |
 |---|---|---|---|---|---|
@@ -43,7 +43,7 @@ Generated automatically by `pytest` on 2026-11-16 18:37 (offline: temporary DB, 
 | T35 | Freshness | Fresh / stale / never-checked states | 2h=FRESH, 100h=STALE (72h limit), None=NEVER_CHECKED | FRESH, STALE, NEVER_CHECKED | Pass |
 | T36 | API | GET /health reports status, vector driver and scheduler | 200, status=ok | 200, driver=Local JSON fallback (BM25) | Pass |
 | T37 | API | GET /api/colleges lists the registry incl. new pilot colleges | >= 53 colleges incl. mait, igdtuw, bpit, gtbit | 53 colleges | Pass |
-| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 112 ms | Pass |
+| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 114 ms | Pass |
 | T39 | API / Scheduler | A second run detects an update and links the event to the run | CONTENT_UPDATED event with monitor_run_id; feed shows summary | event #3 linked to run #3 | Pass |
 | T40 | API / Scheduler | Failed source in a run -> run PARTIAL, error counted, source marked missing | status PARTIAL, errors=1, source FETCH_FAILED | PARTIAL, errors=1 | Pass |
 | T41 | API / Scheduler | Concurrent runs are prevented | 409 while a run holds the lock | 409 Conflict | Pass |
@@ -62,8 +62,11 @@ Generated automatically by `pytest` on 2026-11-16 18:37 (offline: temporary DB, 
 | T54 | AI providers | Gemini SDK call retries once on 429 and skips a missing model | 404 model skipped, 429 retried, text returned | calls=['gemini-missing', 'gemini-good', 'gemini-good'] | Pass |
 | T55 | AI providers | Change summaries use the active provider | summary_mode=gemini when Gemini answers | mode=gemini | Pass |
 | T56 | API | POST /api/web-research: friendly 503 without key; official domains first with key | 503 + message; sources sorted Official → others | 503 without key; mait.ac.in listed first | Pass |
+| T57 | AI providers | A model still returning 429 after its retry is skipped for 60 s | 2nd call goes straight to the fallback model (no repeat 429) | calls=['gemini-busy', 'gemini-busy', 'gemini-ok', 'gemini-ok'] | Pass |
 
 ## Performance (20 sample queries on the real pilot index)
+
+_Benchmark measured on 16 Nov with Groq answering (before Gemini became the primary provider)._
 
 Measured 2026-11-16 18:29 on the development laptop · 341 chunks · Local JSON fallback (BM25) · LLM: Groq `qwen/qwen3.8-27b`.
 
@@ -100,4 +103,14 @@ Refusals happen without an LLM call when retrieval finds nothing (≈ retrieval 
 | 18 | What is the intake of USICT B.Tech CSE? | 1.8 | 758.9 | groq | Yes | 2 |
 | 19 | Tell me about IGDTUW placements | 0.8 | 4.4 | none | No (refused) | 0 |
 | 20 | What is the swimming pool size at DTU? | 5.6 | 10.1 | none | No (refused) | 0 |
+
+## Live Gemini check (primary provider, 16 Nov 2026)
+
+Run through the same `answer()` path the Ask page uses, against the real index. `gemini-3.5-flash` had used up its free-tier quota, so the chain moved to `gemini-3.1-flash-lite` (Gemini still answered; Groq was not needed). The first call includes that one-off fallback.
+
+| Question | Provider | Model | Retrieval (ms) | Total (ms) | Answer (abridged) | Sources |
+|---|---|---|---|---|---|---|
+| Does MAIT offer ECE? | gemini | gemini-3.1-flash-lite | 11.6 | 4250.6 | Yes, MAIT offers Electronics and Communication Engineering (ECE). Source [S1] lists Electronics and Communication Engineering with an intake of 120 students. Source [S2] also li… | 3 |
+| What is the median salary at DTU? | gemini | gemini-3.1-flash-lite | 29.5 | 2364.7 | According to NIRF 2025 data for DTU, the median salary for UG (4-year program) graduates is Rs. 13,00,000 for the 2021-22 academic year, Rs. 14,10,000 for 2022-23, and Rs. 13,25… | 2 |
+| What is the swimming pool size at DTU? | none | — | 23.3 | 24.0 | Not available in indexed sources. | 0 |
 

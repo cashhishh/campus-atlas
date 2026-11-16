@@ -31,7 +31,7 @@ The provider chain is **Gemini → Groq → grounded demo (extractive) answer**.
 
 | Service / model | Purpose |
 |---|---|
-| Google Gemini API via `google-genai` (primary) | Context-only answers and change summaries. Default `GEMINI_MODEL=gemini-flash-latest` (the current Flash model), with fallbacks `gemini-2.5-flash`, `gemini-2.0-flash`. One short retry on 429 / timeout / 5xx, then fallback |
+| Google Gemini API via `google-genai` (primary) | Context-only answers and change summaries. Default `GEMINI_MODEL=gemini-3.5-flash`, fallback `gemini-3.1-flash-lite` (`gemini-2.5-flash` is retired for new keys; `gemini-3.8-flash` was overloaded with 503/504 on 16 Nov). 10 s per call (the API minimum); one short retry on 429, then a 60 s cool-down for that model; on timeout/5xx it moves to the next model, then to Groq |
 | Gemini + Google Search grounding tool | Experimental "live web research" button: prefers official domains (.ac.in, .edu.in, .gov.in, nirfindia.org), shows source URLs with verification badges, and is labelled "not source-grounded" |
 | Groq Cloud API (OpenAI-compatible, fallback) | Used when Gemini fails or has no key. `qwen/qwen3.8-27b` (active), fallbacks `openai/gpt-oss-120b`, `openai/gpt-oss-20b` |
 | Grounded demo response (no LLM) | Extractive sentences from the retrieved sources with [S#] citations. Used when no provider is available |
