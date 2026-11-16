@@ -36,7 +36,10 @@ The provider chain is **Gemini → Groq → grounded demo (extractive) answer**.
 | Groq Cloud API (OpenAI-compatible, fallback) | Used when Gemini fails or has no key. `qwen/qwen3.8-27b` (active), fallbacks `openai/gpt-oss-120b`, `openai/gpt-oss-20b` |
 | Grounded demo response (no LLM) | Extractive sentences from the retrieved sources with [S#] citations. Used when no provider is available |
 | `groq/compound-mini` (retired from the UI) | First-defence web research. `server/apiPlugin.mjs` is kept in the repo but no longer mounted |
+| `gemini-embedding-001` (768-d) + NumPy index | Semantic search: chunk vectors in `backend/data/embeddings.npz`, cosine similarity blended with BM25 (hybrid ranking); keyword-only search is the fallback |
 | BM25 (own implementation) | Keyword relevance ranking in the local chunk store |
+| Query understanding | Rules + a cheap Gemini/Groq JSON call (only when the rules are unsure): FACT / COMPARE / RECOMMEND / LIST, all colleges, topics, sub-queries |
+| Structured NIRF facts | `college_facts` table: NIRF 2025 rank/score or band, median UG salary by year and UG intake, parsed from official NIRF tables and data PDFs |
 
 ## Frontend (Node v22.17.1)
 

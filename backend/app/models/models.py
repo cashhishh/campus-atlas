@@ -126,3 +126,20 @@ class LiveLookup(Base):
     outcome = Column(String)  # official | nirf | third_party | none
     result = Column(Text)  # JSON: label, checked, fetched, links
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CollegeFact(Base):
+    """Structured, cited facts (e.g. NIRF rank, median salary) used by comparisons."""
+
+    __tablename__ = "college_facts"
+    id = Column(Integer, primary_key=True)
+    college_id = Column(String, index=True)
+    field = Column(String)  # nirf_rank | nirf_band | nirf_score | median_salary_ug | ug_intake
+    value = Column(String)
+    num = Column(Float)
+    year = Column(String)
+    source_id = Column(Integer)
+    source_url = Column(String)
+    source_name = Column(String)
+    evidence = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)

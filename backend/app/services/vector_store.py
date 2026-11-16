@@ -5,6 +5,7 @@ deterministic and works with no ML downloads. Chunks for a source are always
 replaced as a set, so stale text never survives a content update.
 """
 import json
+import os
 import math
 import re
 import threading
@@ -78,6 +79,9 @@ def _json_path():
 
 
 _cache: dict = {"key": None, "chunks": []}
+# Cosine similarity mapped to 0..1 relevance (calibrated on the pilot index, gemini-embedding-001).
+COS_FLOOR = float(os.getenv("COS_FLOOR", "0.60"))
+COS_HIGH = float(os.getenv("COS_HIGH", "0.75"))
 
 
 def _load() -> list[dict]:
@@ -137,7 +141,12 @@ def replace_source_chunks(source_id: int, chunks: list[dict]) -> str:
             return "chromadb"
         kept = [c for c in _load() if c["metadata"].get("source_id") != source_id]
         _save(kept + chunks)
-        return "local fallback"
+    try:
+        from . import embeddings
+        embeddings.schedule_sync()  # embed new chunks in the background
+    except Exception:
+        pass
+    return "local fallback"
 
 
 def upsert(chunks: list[dict]) -> str:
@@ -170,7 +179,7 @@ def _bm25(query_terms: list[str], docs: list[dict], k1: float = 1.4, b: float = 
     return scores
 
 
-def query(text: str, college_ids=None, n: int = 8) -> list[dict]:
+def query(text: str, college_ids=None, n: int = 8, semantic: bool = True) -> list[dict]:
     """Return up to `n` relevant chunks as {'text','metadata','score'}; score is 0..1."""
     col = _chroma()
     if col is not None:
@@ -183,6 +192,10 @@ def query(text: str, college_ids=None, n: int = 8) -> list[dict]:
     if not docs or not terms:
         return []
     raw = _bm25(terms, docs)
+    sims = None
+    if semantic:
+        from . import embeddings
+        sims = embeddings.similarities(text, [d["id"] for d in docs])
     # Normalise against the best possible score for this query so the threshold is meaningful.
     ceiling = max(raw) if raw else 0
     coverage = []
@@ -192,9 +205,19 @@ def query(text: str, college_ids=None, n: int = 8) -> list[dict]:
         coverage.append(len(unique & toks) / len(unique))
     ranked = []
     for d, s, cov in zip(docs, raw, coverage):
+        bm = s / ceiling if ceiling else 0
+        if sims:  # hybrid: semantic similarity + BM25 + term coverage
+            cos = sims.get(d["id"])
+            sem = 0.0 if cos is None else min(1.0, max(0.0, (cos - COS_FLOOR) / (COS_HIGH - COS_FLOOR)))
+            if s <= 0 and sem <= 0:
+                continue
+            score = 0.5 * sem + 0.25 * bm + 0.25 * cov
+            ranked.append({**d, "score": round(score, 4), "bm25": round(s, 3), "coverage": round(max(cov, sem), 3),
+                           "cosine": None if cos is None else round(cos, 4)})
+            continue
         if s <= 0:
             continue
-        score = 0.5 * (s / ceiling if ceiling else 0) + 0.5 * cov
+        score = 0.5 * bm + 0.5 * cov
         ranked.append({**d, "score": round(score, 4), "bm25": round(s, 3), "coverage": round(cov, 3)})
     return sorted(ranked, key=lambda x: x["score"], reverse=True)[:n]
 

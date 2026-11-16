@@ -15,7 +15,9 @@ export type AskResult = {
   answer: string; sources: Citation[]; mode: 'gemini' | 'groq' | 'extractive' | 'none'; grounded: boolean; intent: string;
   provider?: 'gemini' | 'groq' | 'demo' | 'none'; model?: string | null;
   answer_label?: string; third_party_note?: string; official_links?: { title: string; url: string }[];
-  live_available?: { college_id: string; domain: string; topic: string };
+  live_available?: { college_id?: string; colleges?: string[]; domain: string; topic: string };
+  query_type?: 'FACT' | 'COMPARE' | 'RECOMMEND' | 'LIST';
+  table?: { columns: { id: string; name: string }[]; rows: { aspect: string; cells: { text: string; cite: number[] }[] }[] };
   live?: { step: 'official' | 'nirf' | 'third_party' | 'none'; domain: string; cached: boolean; checked?: string[]; fetched?: string[]; elapsed_s?: number };
   college_ids: string[]; notice?: string; demo_notice?: string;
   latency: { retrieval_ms: number; generation_ms: number; total_ms: number };

@@ -99,3 +99,7 @@ table.evidence{margin-top:12px}
 .live-label.none{background:#efeeea!important;color:#5f5d59!important}
 .official-links{margin:8px 0 0;padding-left:18px;line-height:1.9}
 .official-links a{color:#a65330}
+.answer-table{margin:0 0 26px}
+.answer-table td{font-size:12px;line-height:1.5}
+.answer-table td.na{color:#9a9893;font-style:italic}
+.cite-sup{font-size:9px;background:#22211f;color:#fff;border-radius:3px;padding:1px 3px;margin-left:3px}

@@ -30,6 +30,8 @@ Useful commands (inside `backend\`):
 .venv\Scripts\python -m scripts.ingest_pilot   # seed + one full monitored ingestion of all sources
 .venv\Scripts\python -m pytest -q              # 48 tests -> regenerates ..\docs\test_results.md
 .venv\Scripts\python -m scripts.benchmark      # latency over 20 queries -> ..\docs\performance.json
+.venv\Scripts\python -m scripts.build_facts    # NIRF rank / band / median salary facts for the pilot colleges
+.venv\Scripts\python -m scripts.reindex_embeddings  # embed all chunks (paced for the free tier)
 ```
 
 If the API is not running, the UI falls back to the first-defence offline mode (static registry and DEMO knowledge).
@@ -47,6 +49,8 @@ If the API is not running, the UI falls back to the first-defence offline mode (
 | `MONITOR_INTERVAL_MINUTES` | `360` | How often every source is re-checked |
 | `STALE_AFTER_HOURS` | `72` | A source not checked for this long is flagged stale |
 | `DATABASE_URL` | `sqlite:///./campusatlas.db` | Any SQLAlchemy URL |
+| `SEMANTIC_SEARCH` | `true` | Hybrid search with Gemini embeddings (needs `GEMINI_API_KEY`); `false` = BM25 only |
+| `LIVE_FETCH_ENABLED` | `true` | On-demand official-site lookup when the index has no answer |
 | `VECTOR_DRIVER` | `auto` | `auto` (Chroma if installed), `json` (BM25) or `chroma` |
 
 ## What is in each phase

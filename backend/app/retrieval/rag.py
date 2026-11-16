@@ -18,6 +18,7 @@ NOT_AVAILABLE = "Not available in indexed sources."
 MAX_CONTEXT_CHUNKS = 5
 
 GROUNDED_PROMPT = """You are CampusAtlas, a source-grounded college information assistant.
+If the sources answer only part of the question, answer that part and say exactly which part is missing.
 Answer ONLY from the numbered SOURCES below. Do not use outside knowledge and never invent
 cutoffs, fees, placement figures, dates or rankings. Cite sources inline as [S1], [S2].
 If the sources contain closely related information (e.g. a dual-degree programme when asked about B.Tech),
@@ -102,10 +103,12 @@ def _extractive(question: str, hits: list[dict], labels: dict[int, int]) -> str:
 
 
 def answer(question: str, college_ids=None, intent: str | None = "general", db=None, registry=None,
-           use_llm: bool = True) -> dict:
+           use_llm: bool = True, hits_override: list | None = None) -> dict:
     started = time.perf_counter()
     question = re.sub(r"\s+", " ", question or "").strip()[:500]
     found = retrieve(question, college_ids, registry)
+    if hits_override is not None:  # sub-query retrieval already merged by the QA engine
+        found["hits"] = hits_override
     hits, scope = found["hits"], found["college_ids"]
     retrieval_ms = (time.perf_counter() - started) * 1000
     detected_intent = classify_intent(question, scope) if intent in (None, "", "general") else intent
@@ -141,6 +144,12 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
         text = "Relevant passages from the indexed sources: " + _extractive(found["search_text"], context, labels)
     generation_ms = (time.perf_counter() - gen_started) * 1000
     grounded = NOT_AVAILABLE.lower().rstrip(".") not in text.lower()
+    strong = [h for h in context if h.get("coverage", 0) >= 0.5]
+    if not grounded and strong:  # partial evidence: never a bare "not available" when relevant text exists
+        text = ("The sources don't state this directly. Most relevant passages: "
+                + _extractive(found["search_text"], strong, labels))
+        grounded = True
+        notice = (notice + " " if notice else "") + "Partial evidence: the exact figure was not found in the cited sources."
     result = {**base, "answer": text, "sources": sources if grounded else [], "mode": mode, "grounded": grounded,
               "provider": mode if mode in ("gemini", "groq") else "demo", "model": model,
               "latency": {"retrieval_ms": round(retrieval_ms, 1), "generation_ms": round(generation_ms, 1),

@@ -133,10 +133,24 @@ def test_disabled(client, web, monkeypatch, actual):
     actual("plain refusal, 0 fetches")
 
 
-@pytest.mark.meta("T67", "Live lookup", "Comparison / multi-college questions never trigger a crawl", "no fetches; no live_available")
-def test_comparison_skips_live(client, web, actual):
+@pytest.mark.meta("T67", "Live lookup", "Comparison with missing cells fills them by crawling EVERY college in parallel", "probe lists both domains; live call fetches dtu.ac.in and nsut.ac.in")
+def test_comparison_fills_every_college(client, web, actual):
     _, calls = web
-    r = client.post("/api/ask", json={"query": "Which is better, DTU or NSUT for hostel fees?", "live": False}).json()
-    r2 = client.post("/api/ask", json={"query": "Which is better, DTU or NSUT for hostel fees?"}).json()
-    assert "live_available" not in r and "live" not in r2 and calls == []
-    actual("0 fetches for a comparison question")
+    q = "Which is better, DTU or NSUT for hostel fees?"
+    r = client.post("/api/ask", json={"query": q, "live": False}).json()
+    assert r["query_type"] == "COMPARE" and set(r["live_available"]["colleges"]) == {"dtu", "nsut"}
+    r2 = client.post("/api/ask", json={"query": q}).json()
+    assert any("dtu.ac.in" in u for u in calls) and any("nsut.ac.in" in u for u in calls) and "table" in r2
+    actual(f"domains={r['live_available']['domain']}; {len(calls)} fetches")
+
+
+@pytest.mark.meta("T75", "Live lookup", "Live ingestion never overwrites a labelled DEMO DATA source with the same URL", "DEMO source text unchanged; page skipped")
+def test_demo_source_protected(db, actual):
+    from app.ingestion.pipeline import latest_version
+    from app.models.models import Source
+    demo = db.query(Source).filter(Source.status == "DEMO_READY").first()
+    before = latest_version(db, demo.id)
+    out = lookup._ingest(db, demo.college_id, [{"url": demo.source_url, "title": "Home", "text": "Fee notice " * 40, "doc_type": "HTML"}], "official", ["fee"])
+    after = latest_version(db, demo.id)
+    assert out == [] and (before.id if before else None) == (after.id if after else None)
+    actual("demo source skipped")

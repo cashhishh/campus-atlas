@@ -1,8 +1,8 @@
 # CampusAtlas — Test Results
 
-Generated automatically by `pytest` on 2026-11-16 19:09 (offline: temporary DB, no network, no Groq).
+Generated automatically by `pytest` on 2026-11-16 19:31 (offline: temporary DB, no network, no Groq).
 
-**67 / 67 tests passed.**
+**75 / 75 tests passed.**
 
 | Test ID | Module | Description | Expected | Actual | Pass/Fail |
 |---|---|---|---|---|---|
@@ -43,7 +43,7 @@ Generated automatically by `pytest` on 2026-11-16 19:09 (offline: temporary DB, 
 | T35 | Freshness | Fresh / stale / never-checked states | 2h=FRESH, 100h=STALE (72h limit), None=NEVER_CHECKED | FRESH, STALE, NEVER_CHECKED | Pass |
 | T36 | API | GET /health reports status, vector driver and scheduler | 200, status=ok | 200, driver=Local JSON fallback (BM25) | Pass |
 | T37 | API | GET /api/colleges lists the registry incl. new pilot colleges | >= 53 colleges incl. mait, igdtuw, bpit, gtbit | 53 colleges | Pass |
-| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 160 ms | Pass |
+| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 191 ms | Pass |
 | T39 | API / Scheduler | A second run detects an update and links the event to the run | CONTENT_UPDATED event with monitor_run_id; feed shows summary | event #3 linked to run #3 | Pass |
 | T40 | API / Scheduler | Failed source in a run -> run PARTIAL, error counted, source marked missing | status PARTIAL, errors=1, source FETCH_FAILED | PARTIAL, errors=1 | Pass |
 | T41 | API / Scheduler | Concurrent runs are prevented | 409 while a run holds the lock | 409 Conflict | Pass |
@@ -68,11 +68,19 @@ Generated automatically by `pytest` on 2026-11-16 19:09 (offline: temporary DB, 
 | T60 | Live lookup | Official + NIRF silent -> reputable third-party page, badged Unverified | label 'Unverified third-party', THIRD_PARTY citation, confirm-on-official note | Unverified third-party · careers360.com · 16 Nov 2026; badge=Third-party | Pass |
 | T61 | Live lookup | Nothing anywhere -> 'Official sources don't publish this information (checked: …)' + official links | grounded=False, checked list, official links, no LLM answer | Official sources don't publish this information (checked: ipu.ac.in/usict/index.…; 4 official links | Pass |
 | T62 | Live lookup | Same college + topic within 24 h is served from the cache (no re-crawl) | 0 new fetches; live.cached=True | first run 3 fetches, second run 0 | Pass |
-| T63 | Live lookup | Crawler respects the page limit and stays on the official domain | <= 15 pages, no external hosts | 15 pages checked, external skipped | Pass |
+| T63 | Live lookup | Crawler respects the page limit and stays on the official domain | <= 15 pages, no external hosts | 1 pages checked, external skipped | Pass |
 | T64 | Live lookup | Link scoring prefers topic keywords; NIRF parser keeps only the college's row | fee links ranked first; only NSUT row kept with headers | fee PDF ranked first; 1 NIRF row with 'Rank: 70' | Pass |
 | T65 | Live lookup | Probe call (live=false) reports what would be checked and is not logged | live_available.domain set; query log unchanged | live_available={'college_id': 'igdtuw', 'domain': 'igdtuw.ac.in', 'topic': 'hostel'} | Pass |
 | T66 | Live lookup | Live lookup off (LIVE_FETCH_ENABLED=false) keeps the plain refusal | 'Not available in indexed sources.' and no fetches | plain refusal, 0 fetches | Pass |
-| T67 | Live lookup | Comparison / multi-college questions never trigger a crawl | no fetches; no live_available | 0 fetches for a comparison question | Pass |
+| T67 | Live lookup | Comparison with missing cells fills them by crawling EVERY college in parallel | probe lists both domains; live call fetches dtu.ac.in and nsut.ac.in | domains=dtu.ac.in, nsut.ac.in; 4 fetches | Pass |
+| T68 | Query understanding | Rules classify COMPARE / RECOMMEND / FACT and find ALL colleges | dtu+nsut COMPARE; best college for ECE in Delhi = RECOMMEND with branch+location | COMPARE, COMPARE, RECOMMEND(delhi, ECE), FACT | Pass |
+| T69 | NIRF facts | NIRF data PDF text is parsed into median salary by year and UG intake | 3 UG years incl. 2023-24 = 13,25,000; intake 2529; PG row ignored | medians 13.0L / 14.1L / 13.25L, intake 2529 | Pass |
+| T70 | Compare | which is better dtu or nsut -> cited table + neutral summary + caveat | rank row cites NIRF; summary names strengths of each; not an absolute verdict; missing cells = not in sources | Delhi Technological University is stronger on NIRF position (Rank 30 vs Netaji Subhas University of Technology rank 70);… | Pass |
+| T71 | Recommend | best college for ECE in Delhi -> shortlist ordered by NIRF facts with branch evidence | only colleges whose sources mention ECE; DTU before NSUT; caveat | order=['dtu', 'nsut', 'mait'] | Pass |
+| T72 | Hybrid search | Semantic similarity is blended with BM25 when embeddings exist | a semantically close chunk with no shared keyword is still returned | semantic-only match ranked first; unrelated chunk dropped | Pass |
+| T73 | Partial evidence | LLM says not available but strongly relevant text exists -> show the passages | grounded=True with partial-evidence notice and [S1] | passages shown with notice | Pass |
+| T74 | Live lookup | Link ranking demotes PhD/MBA/tender/notice pages unless asked | B.Tech fee page kept; MBA fee notice and tender dropped | kept ['https://dtu.ac.in/btech-fee'] | Pass |
+| T75 | Live lookup | Live ingestion never overwrites a labelled DEMO DATA source with the same URL | DEMO source text unchanged; page skipped | demo source skipped | Pass |
 
 ## Performance (20 sample queries on the real pilot index)
 

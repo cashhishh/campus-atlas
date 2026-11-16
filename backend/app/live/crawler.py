@@ -43,9 +43,22 @@ def fetch(url: str, timeout: float, browser_ua: bool = False) -> dict:
     return {"url": final, "title": html_title(r.text) or final, "text": clean_html(r.text, final), "doc_type": "HTML", "html": r.text}
 
 
+# Pages that are rarely what a B.Tech applicant asks about: demoted unless the question mentions them.
+OFF_TOPIC = ("phd", "ph.d", "mba", "emba", "m.tech", "mtech", "m.des", "mdes", "tender", "recruitment", "advertisement",
+             "corrigendum", "walk-in", "faculty-position", "notice", "circular", "quotation", "auction")
+BOOST = ("b.tech", "btech", "undergraduate", "placement", "nirf", "fee", "hostel")
+
+
 def score_link(text: str, url: str, keywords: list[str]) -> int:
     t, u = text.lower(), url.lower()
-    return sum(2 for k in keywords if k in t) + sum(1 for k in keywords if k in u)
+    score = sum(2 for k in keywords if k in t) + sum(1 for k in keywords if k in u)
+    if score <= 0:
+        return 0
+    asked = " ".join(keywords).lower()
+    score += sum(1 for b in BOOST if b in t + " " + u and b in asked)
+    if any(o in t + " " + u and o not in asked for o in OFF_TOPIC):
+        score -= 4
+    return score
 
 
 def extract_links(html: str, base_url: str, domain: str, keywords: list[str]) -> list[tuple[int, str, str]]:

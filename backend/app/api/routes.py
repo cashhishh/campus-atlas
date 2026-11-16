@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..analytics import build_analytics
 from ..live import lookup as live_lookup
+from ..qa import engine as qa_engine
 from ..database import get_db
 from ..ingestion.pipeline import DEMO_TEXT, ingest, latest_version, process_text
 from ..models.models import College, ContentVersion, IngestionEvent, MonitorRun, QueryLog, Source, UpdateEvent
@@ -298,12 +299,42 @@ def ask(p: Ask, db: Session = Depends(get_db)):
     key = (p.query.strip().lower(), tuple(p.college_ids), p.intent)
     cached = _PROBES.pop(key, None) if p.live else None
     if cached and time.time() - cached[0] < 120:
-        result = cached[1]  # the probe already ran retrieval + LLM for this question
+        result = cached[1]  # the probe already ran understanding + retrieval + LLM for this question
+    elif p.college_ids:  # explicit scope from the UI/API: plain grounded answer
+        result = answer(p.query, p.college_ids, p.intent, db=db, registry=registry)
     else:
-        result = answer(p.query, p.college_ids or None, p.intent, db=db, registry=registry)
-    if not result['grounded']:
+        result = qa_engine.ask(db, p.query, registry)
+    qtype = result.get('query_type', 'FACT')
+
+    if qtype == 'COMPARE':
+        missing = any(cell['text'] == qa_engine.NOT_IN_SOURCES for row in result['table']['rows'] for cell in row['cells'])
+        topic = 'compare:' + ','.join(sorted(result['understanding'].get('topics') or ['general']))
+        plan = live_lookup.fill_plan(db, result['college_ids'][:3], topic) if missing else None
+        if plan and not p.live:
+            _PROBES[key] = (time.time(), dict(result))
+            result['live_available'] = {**plan, 'domain': ', '.join(plan['domains'])}
+            return result  # UI shows this table now and "Checking <domains>…" while the follow-up fills gaps
+        if plan and p.live:
+            report = live_lookup.fill(db, plan['colleges'], topic)
+            started = time.perf_counter()
+            qu = {**result['understanding'], 'subqueries': result['understanding'].get('subqueries') or []}
+            refreshed = qa_engine.compare(db, p.query, qu, started)
+            refreshed['latency']['total_ms'] = round(result['latency']['total_ms'] + refreshed['latency']['total_ms'], 1)
+            if report['fetched']:
+                refreshed['answer_label'] = 'Cited comparison · fetched live from ' + ', '.join(report['domains'])
+            refreshed['live'] = {'step': 'official' if report['fetched'] else 'none', 'domain': ', '.join(report['domains']),
+                                 'checked': report['checked'], 'fetched': report['fetched'], 'cached': False}
+            result = refreshed
+    elif not result['grounded'] and qtype == 'FACT':
         if p.live:
             result = live_lookup.resolve(db, p.query, result, registry)
+            if not result['grounded'] and result.get('college_ids'):
+                cites = qa_engine.Citations(db)
+                extra = qa_engine.related_facts(db, result['college_ids'], cites)
+                if extra:  # partial evidence: say what IS published, with citations
+                    result['answer'] = result['answer'] + ' ' + extra
+                    result['sources'] = cites.views
+                    result['partial'] = True
         else:
             plan = live_lookup.plan(db, result)
             if plan:

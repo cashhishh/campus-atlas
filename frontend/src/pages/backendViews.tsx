@@ -58,3 +58,10 @@ export function WebResearchCard({ r }: { r: WebResearchResult }) {
     </a>) : <div className="empty">Gemini did not return source links for this answer.</div>}
   </section>;
 }
+
+/** Cited comparison / shortlist table returned by /api/ask for COMPARE, RECOMMEND and LIST questions. */
+export function AnswerTable({ table }: { table: NonNullable<import('../services/api').AskResult['table']> }) {
+  return <div className="table-wrap answer-table"><table><thead><tr><th>Aspect</th>{table.columns.map(c => <th key={c.id}>{c.name}</th>)}</tr></thead><tbody>
+    {table.rows.map(r => <tr key={r.aspect}><td>{r.aspect}</td>{r.cells.map((c, i) => <td key={i} className={c.text === 'not in sources' ? 'na' : ''}>{c.text}{c.cite.map(n => <sup key={n} className="cite-sup">S{n}</sup>)}</td>)}</tr>)}
+  </tbody></table></div>;
+}

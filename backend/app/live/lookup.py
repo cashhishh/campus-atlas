@@ -30,7 +30,7 @@ def enabled() -> bool:
 
 
 def budget_s() -> float:
-    return float(os.getenv("LIVE_FETCH_BUDGET_SECONDS", "12"))
+    return float(os.getenv("LIVE_FETCH_BUDGET_SECONDS", "10"))
 
 
 def plan(db, result: dict) -> dict | None:
@@ -65,6 +65,8 @@ def _ingest(db, college_id: str, docs: list[dict], kind: str, keywords: list[str
         if kind == "official" and not any(k in text.lower() for k in keywords):
             continue
         src = db.query(Source).filter(Source.college_id == college_id, Source.source_url == doc["url"]).first()
+        if src is not None and (src.is_demo or src.status == "DEMO_READY"):
+            continue  # never overwrite labelled DEMO DATA with live text
         if src is None:
             label = {"official": "live fetch", "nirf": "NIRF", "third_party": "third-party"}[kind]
             src = Source(college_id=college_id, source_name=f"{(doc.get('title') or doc['url'])[:110]} ({label})",
@@ -222,3 +224,58 @@ def _third_party_docs(college, topic: str, checked: list[str]) -> list[dict]:
         doc["title"] = f"{crawler.host_of(url)} — {college.name} {topic}"
         docs.append(doc)
     return docs
+
+
+# ---------------------------------------------------------------- multi-college fill (comparisons)
+COMPARE_KEYWORDS = ["fee", "fees", "placement", "nirf", "b.tech", "btech", "programme", "intake", "hostel", "admission"]
+
+
+def fill_plan(db, college_ids: list[str], topic: str) -> dict | None:
+    """Colleges in a comparison whose official site has not been searched for this topic in 24 h."""
+    if not enabled():
+        return None
+    since = datetime.utcnow() - timedelta(hours=CACHE_HOURS)
+    todo = []
+    for cid in college_ids:
+        college = db.get(College, cid)
+        if not college or not college.official_domain:
+            continue
+        if db.query(LiveLookup).filter(LiveLookup.college_id == cid, LiveLookup.topic == topic,
+                                       LiveLookup.created_at >= since).first():
+            continue
+        todo.append(college)
+    if not todo:
+        return None
+    return {"colleges": [c.id for c in todo], "domains": [c.official_domain for c in todo], "topic": topic}
+
+
+def fill(db, college_ids: list[str], topic: str, keywords: list[str] | None = None) -> dict:
+    """Crawl every listed college's official domain IN PARALLEL (one shared ~10 s budget), ingest, cache."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    keywords = keywords or COMPARE_KEYWORDS
+    colleges = [db.get(College, cid) for cid in college_ids]
+    colleges = [c for c in colleges if c and c.official_domain]
+    skips = {c.id: {s.source_url for s in db.query(Source).filter(Source.college_id == c.id).all()} for c in colleges}
+    pool = ThreadPoolExecutor(max_workers=max(1, len(colleges)))
+    try:
+        futures = {c.id: pool.submit(crawler.crawl, START_URLS.get(c.id, f"https://{c.official_domain}/"), c.official_domain,
+                                     keywords, skips[c.id], 12, budget_s()) for c in colleges}
+        crawls = {}
+        for cid, f in futures.items():
+            try:
+                crawls[cid] = f.result(timeout=budget_s() + 2)
+            except Exception:
+                crawls[cid] = {"docs": [], "checked": [], "links": []}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    report = {"checked": [], "fetched": [], "domains": [c.official_domain for c in colleges]}
+    for c in colleges:
+        crawl = crawls[c.id]
+        new = _ingest(db, c.id, crawl["docs"], "official", keywords)
+        report["checked"] += crawl["checked"]
+        report["fetched"] += new
+        _save(db, c.id, topic, "official" if new else "none",
+              {"checked": crawl["checked"], "fetched": new, "links": _official_links(db, c, crawl.get("links", [])),
+               "unreadable": not crawl.get("home_readable", False), "label": f"Fetched live from {c.official_domain} · {_today()}"})
+    return report
