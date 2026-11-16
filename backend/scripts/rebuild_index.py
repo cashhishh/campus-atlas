@@ -1,4 +1,4 @@
-"""Rebuild the local database and chunk store from scratch, then run one full ingestion.
+r"""Rebuild the local database and chunk store from scratch, then run one full ingestion.
 
 Use after changing extraction/cleaning logic, so the change feed only shows real
 website changes. Usage (from backend/):  .venv\Scripts\python -m scripts.rebuild_index

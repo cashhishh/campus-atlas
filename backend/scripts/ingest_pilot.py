@@ -1,4 +1,4 @@
-"""Seed the registry (incl. pilot sources) and run one full monitoring/ingestion cycle.
+r"""Seed the registry (incl. pilot sources) and run one full monitoring/ingestion cycle.
 
 Usage (from backend/):  .venv\Scripts\python -m scripts.ingest_pilot
 """
