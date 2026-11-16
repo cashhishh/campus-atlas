@@ -9,7 +9,7 @@ WEIGHTS = {"branch": 30, "location": 20, "type": 15, "hostel": 10, "placement": 
 MAX_SCORE = sum(WEIGHTS.values())
 
 COMPARE_TOPICS = {
-    "Programmes": "programmes courses branches engineering departments",
+    "Programmes": "b tech programmes courses intake branches",
     "Admissions": "admission eligibility counselling jee cet jac",
     "Fees": "fee fees tuition",
     "Placements": "placement placements recruiters training",

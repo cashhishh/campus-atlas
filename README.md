@@ -1,73 +1,59 @@
 # CampusAtlas
 
-CampusAtlas is an AI-powered, source-driven college intelligence prototype for a B.Tech Minor Project defense.
+CampusAtlas is a source-grounded college intelligence platform (B.Tech minor project). It registers official college sources, ingests and versions them, monitors them for changes, and answers questions **only** from indexed sources, with verification and freshness on every citation.
 
-## Quick start
+## Run it (Windows, from the project root)
 
-1. Install dependencies:
+First time only:
 
-```bash
+```powershell
 npm install
+python -m venv backend\.venv
+backend\.venv\Scripts\python -m pip install -r backend\requirements-dev.txt
+cd backend; .venv\Scripts\python -m scripts.ingest_pilot; cd ..
 ```
 
-2. Start the application:
+Every time, use two terminals:
 
-```bash
+```powershell
+# Terminal 1 — API (http://127.0.0.1:8000, docs at /docs)
+cd backend
+.venv\Scripts\python -m uvicorn app.main:app --port 8000
+
+# Terminal 2 — UI (http://localhost:5173)
 npm run dev
 ```
 
-Open the Vite localhost address shown in the terminal. Demo Knowledge Mode works without any external service.
+Useful commands (inside `backend\`):
 
-## Demo Mode
-
-Demo Knowledge Mode is the default and is fully functional without an API key. It searches a local source-grounded knowledge base and returns only matching local entries with source attribution.
-
-The Data Management page includes a clearly labelled **Prototype / Demo Ingestion** flow for configured HTML and PDF examples. It displays staged processing and saves ingestion history in browser local storage. It does not claim to crawl live websites.
-
-## Live AI Mode (optional, Groq)
-
-Set the server-side value in the root `.env` file:
-
-```text
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=qwen/qwen3.6-27b
-GROQ_WEB_MODEL=groq/compound-mini
+```powershell
+.venv\Scripts\python -m scripts.ingest_pilot   # seed + one full monitored ingestion of all sources
+.venv\Scripts\python -m pytest -q              # 48 tests -> regenerates ..\docs\test_results.md
+.venv\Scripts\python -m scripts.benchmark      # latency over 20 queries -> ..\docs\performance.json
 ```
 
-Run the project with just:
+If the API is not running, the UI falls back to the first-defence offline mode (static registry and DEMO knowledge).
 
-```bash
-npm install
-npm run dev
-```
+## Configuration (`.env` in the root and/or `backend/`)
 
-The Vite development server hosts the local `/api/ask` endpoint. It sends the normalized question and any relevant local knowledge to Groq Compound Mini, which uses current web search and returns cited sources. The prompt prioritises official college, government, admission-authority, and official PDF sources. The API key stays on the server and never reaches browser code. If Groq is unavailable or rate-limited, the UI automatically falls back to Demo Knowledge Mode.
+| Variable | Default | Meaning |
+|---|---|---|
+| `GROQ_API_KEY` | – | Enables context-only AI answers and AI change summaries. Without it, answers are extractive |
+| `GROQ_MODEL` | – | Preferred Groq model; retired models fall back to `GROQ_FALLBACK_MODELS` automatically |
+| `MONITOR_ENABLED` | `true` | Start the APScheduler monitoring job |
+| `MONITOR_INTERVAL_MINUTES` | `360` | How often every source is re-checked |
+| `STALE_AFTER_HOURS` | `72` | A source not checked for this long is flagged stale |
+| `DATABASE_URL` | `sqlite:///./campusatlas.db` | Any SQLAlchemy URL |
+| `VECTOR_DRIVER` | `auto` | `auto` (Chroma if installed), `json` (BM25) or `chroma` |
 
-## Architecture
+## What is in each phase
 
-```text
-React + TypeScript + Vite
-├── src/data/       local college registry, sources and knowledge entries
-├── src/services/   retrieval, demo AI, ingestion and local storage adapters
-└── src.tsx         premium responsive routes and UI
-```
+See [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) and [docs/](docs/):
+[progress since the first defence](docs/PROGRESS_SECOND_DEFENCE.md) · [architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [tech stack](docs/TECH_STACK.md) · [test results](docs/test_results.md) · [code snippets](docs/CODE_SNIPPETS.md)
 
-## Working first-defense features
+## Data honesty
 
-- 50-college registry with search and filtering
-- Detailed local demonstration profiles: DTU, MAIT, NSUT, IIT Delhi and BITS Pilani
-- Source registry and source authority labels
-- Source-grounded Ask CampusAtlas with source cards
-- Local PDF-processing demonstration entry
-- Prototype staged ingestion with local history
-- Evidence-aware college comparison
-- Explainable client-side college recommendations
-- Responsive UI and local persistence for comparisons, searches, preferences and ingestion history
-
-## Future phase / Coming Soon
-
-- Continuous source monitoring
-- Semantic change detection
-- Live large-scale ingestion
-- Automatic source discovery
-- Production-scale vector database infrastructure
+- Every fact comes from an ingested source and is shown with a citation. Cutoffs, fees, placement figures and ranks are never typed in.
+- Sources that cannot be fetched (IGDTUW's JavaScript-only site, scanned PDFs) stay registered, are marked missing, and questions about them return **"Not available in indexed sources."**
+- The four first-defence sources keep their **DEMO DATA** label. The "Simulate change" button only works on them, and its text says it is simulated.
+- "Live web research" (Groq Compound) is kept as an experimental, clearly labelled, *not source-grounded* comparison.

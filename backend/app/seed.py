@@ -18,7 +18,8 @@ def seed(db):
   if (x[0],x[2]) not in urls: db.add(Source(college_id=x[0],source_name=x[1],source_url=x[2],source_type=x[3],authority_level=x[4],status='DEMO_READY',is_demo=True))
  for x in PILOT_SOURCES:
   if (x['college_id'],x['source_url']) not in urls: db.add(Source(status='ACTIVE',is_demo=False,**x))
- # Backfill the DEMO label on databases created before Phase 5.
- for s in db.query(Source).filter(Source.status=='DEMO_READY',Source.is_demo.is_(None)): s.is_demo=True
- for s in db.query(Source).filter(Source.is_demo.is_(None)): s.is_demo=False
+ # Backfill the DEMO label on databases created before Phase 5 (DEMO_READY always means demo data).
+ for s in db.query(Source).all():
+  if s.status=='DEMO_READY': s.is_demo=True
+  elif s.is_demo is None: s.is_demo=False
  db.commit()

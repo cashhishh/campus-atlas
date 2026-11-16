@@ -6,6 +6,7 @@ adds content versions, diffs, change summaries and failure marking.
 import hashlib
 import re
 import ssl
+from urllib.parse import urlparse
 from datetime import datetime
 
 import httpx
@@ -33,14 +34,46 @@ class IngestionError(RuntimeError):
 
 
 # ------------------------------------------------------------------ extract
-def clean_html(raw: str) -> str:
+def clean_html(raw: str, base_url: str | None = None) -> str:
     """Strip navigation/boilerplate and return whitespace-normalised visible text."""
     soup = BeautifulSoup(raw, "html.parser")
     for tag in soup(BOILERPLATE_TAGS):
         tag.decompose()
     for tag in soup.select('[role="navigation"], [aria-hidden="true"], .menu, #menu, .navbar, .cookie, .breadcrumb'):
         tag.decompose()
-    return normalize(soup.get_text(" ", strip=True))
+    base = normalize(soup.get_text(" ", strip=True))
+    _drop_link_dense_blocks(soup, _host(base_url))
+    filtered = normalize(soup.get_text(" ", strip=True))
+    # Pages whose content *is* a list of links (notices, NIRF documents) keep their text.
+    return filtered if len(filtered) >= max(200, 0.25 * len(base)) else base
+
+
+def _host(url: str | None) -> str:
+    host = (urlparse(url or "").hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _is_internal(href: str, site: str) -> bool:
+    href = (href or "").strip()
+    if not href.lower().startswith(("http://", "https://", "//")):
+        return not href.lower().startswith(("mailto:", "tel:", "javascript:"))
+    return bool(site) and (_host(href if not href.startswith("//") else "http:" + href) == site)
+
+
+def _drop_link_dense_blocks(soup, site: str = "", min_links: int = 5, max_ratio: float = 0.7) -> None:
+    """Remove menus rendered as plain lists/divs: blocks whose text is mostly *internal* link text.
+
+    Lists of external links (recruiters, document portals) are content and are kept."""
+    for block in soup.find_all(["ul", "ol", "div", "td", "section"]):
+        if getattr(block, "decomposed", False):  # parent already removed
+            continue
+        links = [a for a in block.find_all("a") if _is_internal(a.get("href", ""), site)]
+        if len(links) < min_links:
+            continue
+        text = block.get_text(" ", strip=True)
+        link_text = sum(len(a.get_text(" ", strip=True)) for a in links)
+        if text and link_text / len(text) >= max_ratio:
+            block.decompose()
 
 
 def html_title(raw: str) -> str | None:
@@ -124,7 +157,7 @@ def fetch_document(src: Source, demo_text: str | None = None) -> dict:
     if "pdf" in ctype or src.source_url.lower().endswith(".pdf") or response.content[:5] == b"%PDF-":
         text, pages = extract_pdf(response.content)
         return {"text": text, "title": src.source_name, "doc_type": "PDF", "pages": pages}
-    return {"text": clean_html(response.text), "title": html_title(response.text) or src.source_name, "doc_type": "HTML"}
+    return {"text": clean_html(response.text, str(response.url) if hasattr(response, "url") else src.source_url), "title": html_title(response.text) or src.source_name, "doc_type": "HTML"}
 
 
 # ----------------------------------------------------------------- process

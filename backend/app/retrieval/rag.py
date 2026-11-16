@@ -67,7 +67,16 @@ def best_snippet(text: str, terms_text: str, max_sentences: int = 2) -> str:
     sentences = [x for x in passages(text) if 20 <= len(x) <= 600]
     ranked = sorted(range(len(sentences)), key=lambda i: -len(terms & set(tokenize(sentences[i]))))
     chosen = sorted(i for i in ranked[:max_sentences] if terms & set(tokenize(sentences[i])))
-    return " ".join(sentences[i] for i in chosen) if chosen else text[:300]
+    if chosen:
+        return " ".join(sentences[i] for i in chosen)
+    # No clean sentence matched (menu-heavy page): show a window around the first matching term.
+    lower = text.lower()
+    hits = [m.start() for t in terms if len(t) > 2 for m in [re.search(r"\b" + re.escape(t), lower)] if m]
+    if not hits:
+        return text[:300]
+    start = max(0, min(hits) - 100)
+    start = lower.rfind(" ", 0, start) + 1 if start else 0
+    return ("…" if start else "") + text[start:start + 320].rstrip() + "…"
 
 
 def _extractive(question: str, hits: list[dict], labels: dict[int, int]) -> str:

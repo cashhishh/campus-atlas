@@ -78,7 +78,7 @@ def main():
         f"| Average AI answer latency (retrieval + Groq, {summary['ai_calls']} LLM calls) | {summary['ai_answer_avg_ms']} ms |",
         f"| 95th percentile AI answer latency | {summary['ai_answer_p95_ms']} ms |",
         f"| Grounded answers / refusals (\"Not available in indexed sources.\") | {summary['grounded_answers']} / {summary['refusals']} |", "",
-        "Refusals happen without an LLM call when retrieval finds nothing (≈ retrieval time only), so they are excluded from the AI-latency average. AI latency is dominated by the Groq network round trip; on the free tier some calls wait for a 429 rate-limit retry (up to 3 s) and a call that still fails falls back to the extractive answer (mode "extractive"), which is why the p95 is ~5 s while uncontended calls take ~1–1.5 s.", "",
+        "Refusals happen without an LLM call when retrieval finds nothing (≈ retrieval time only), so they are excluded from the AI-latency average. AI latency is dominated by the Groq network round trip; on the free tier some calls wait for a 429 rate-limit retry (up to 3 s), and a call that still fails falls back to the extractive answer (mode = extractive), which raises the p95.", "",
         "| # | Query | Retrieval (ms) | AI answer (ms) | Mode | Grounded | Sources |", "|---|---|---|---|---|---|---|",
     ]
     lines += [f"| {i} | {r['query']} | {r['retrieval_ms']:.1f} | {r['ai_total_ms']:.1f} | {r['ai_mode']} | {'Yes' if r['grounded'] else 'No (refused)'} | {r['sources']} |"
