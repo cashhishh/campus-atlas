@@ -40,23 +40,34 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
-def resolve_db_url(url: str) -> str:
-    """Anchor relative SQLite paths to the backend folder so cwd does not matter."""
-    prefix = "sqlite:///./"
-    if url.startswith(prefix):
-        return "sqlite:///" + (BACKEND_DIR / url[len(prefix):]).as_posix()
-    return url
-
-
 def data_dir() -> Path:
-    path = Path(os.getenv("CAMPUSATLAS_DATA_DIR", BACKEND_DIR / "data"))
+    """Persistent data folder (chunk store, embeddings, and - when DATA_DIR is set - the SQLite DB).
+
+    DATA_DIR (deployment, e.g. /app/data on a Railway volume) wins; relative values are anchored
+    to backend/. Default: backend/data, i.e. ./data when run from backend/.
+    """
+    raw = os.getenv("DATA_DIR") or os.getenv("CAMPUSATLAS_DATA_DIR") or "./data"
+    path = Path(raw)
+    if not path.is_absolute():
+        path = BACKEND_DIR / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def chroma_path() -> str:
+    if not os.getenv("CHROMA_PATH") and os.getenv("DATA_DIR"):
+        return str(data_dir() / "chroma")
     raw = os.getenv("CHROMA_PATH", "./chroma")
     return str(BACKEND_DIR / raw[2:]) if raw.startswith("./") else raw
+
+
+def resolve_db_url(url: str) -> str:
+    """Anchor relative SQLite paths to DATA_DIR when set (deployment volume), else to backend/."""
+    prefix = "sqlite:///./"
+    if url.startswith(prefix):
+        base = data_dir() if os.getenv("DATA_DIR") else BACKEND_DIR
+        return "sqlite:///" + (base / url[len(prefix):]).as_posix()
+    return url
 
 
 def groq_api_key() -> str:
@@ -68,7 +79,7 @@ def groq_model() -> str:
     return os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 
-DATABASE_URL = resolve_db_url(os.getenv("DATABASE_URL", "sqlite:///./campusatlas.db"))
+DATABASE_URL = resolve_db_url(os.getenv("DATABASE_URL") or "sqlite:///./campusatlas.db")
 FRONTEND_ORIGINS = [o.strip() for o in os.getenv("FRONTEND_ORIGIN", "http://localhost:5173").split(",") if o.strip()]
 
 # Phase 5 — monitoring and freshness
