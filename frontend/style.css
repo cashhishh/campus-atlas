@@ -94,3 +94,8 @@ table.evidence{margin-top:12px}
 
 .web-research{margin-top:28px;padding:20px;border:1px dashed #d9c3b8;border-radius:12px;background:#fffdfb}
 .web-research>p{font-size:15px;line-height:1.6;color:#3d3c39;white-space:pre-line}
+.live-label{background:#e7f0fb!important;color:#1d5aa3!important}
+.live-label.tp{background:#fcefdc!important;color:#8a5200!important}
+.live-label.none{background:#efeeea!important;color:#5f5d59!important}
+.official-links{margin:8px 0 0;padding-left:18px;line-height:1.9}
+.official-links a{color:#a65330}

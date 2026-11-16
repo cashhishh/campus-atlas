@@ -8,6 +8,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..analytics import build_analytics
+from ..live import lookup as live_lookup
 from ..database import get_db
 from ..ingestion.pipeline import DEMO_TEXT, ingest, latest_version, process_text
 from ..models.models import College, ContentVersion, IngestionEvent, MonitorRun, QueryLog, Source, UpdateEvent
@@ -275,6 +276,7 @@ class Ask(BaseModel):
     query: str
     intent: str = 'general'
     college_ids: list[str] = []
+    live: bool = True  # on-demand lookup (official crawl → NIRF → third-party) when the index has no answer
 
 
 def _log_query(db, p: Ask, result: dict):
@@ -285,11 +287,29 @@ def _log_query(db, p: Ask, result: dict):
     db.commit()
 
 
+_PROBES: dict = {}  # probe results reused by the live follow-up request (2 min)
+
+
 @router.post('/ask')
 def ask(p: Ask, db: Session = Depends(get_db)):
     if not p.query.strip():
         raise HTTPException(422, 'A question is required.')
-    result = answer(p.query, p.college_ids or None, p.intent, db=db, registry=_registry(db))
+    registry = _registry(db)
+    key = (p.query.strip().lower(), tuple(p.college_ids), p.intent)
+    cached = _PROBES.pop(key, None) if p.live else None
+    if cached and time.time() - cached[0] < 120:
+        result = cached[1]  # the probe already ran retrieval + LLM for this question
+    else:
+        result = answer(p.query, p.college_ids or None, p.intent, db=db, registry=registry)
+    if not result['grounded']:
+        if p.live:
+            result = live_lookup.resolve(db, p.query, result, registry)
+        else:
+            plan = live_lookup.plan(db, result)
+            if plan:
+                _PROBES[key] = (time.time(), dict(result))
+                result['live_available'] = plan  # UI shows "Checking <domain>…" and repeats with live=true
+                return result  # not logged: the follow-up live request is the one that counts
     _log_query(db, p, result)
     return result
 

@@ -19,6 +19,7 @@ os.environ.update({
     "MONITOR_ENABLED": "false",
     "GROQ_API_KEY": "",
     "GEMINI_API_KEY": "",
+    "LIVE_FETCH_ENABLED": "false",
     "LLM_PROVIDER": "gemini",
     "VECTOR_DRIVER": "json",
     "STALE_AFTER_HOURS": "72",

@@ -43,7 +43,7 @@ def run_monitoring_cycle(trigger: str = "manual", source_ids: list[int] | None =
         db.add(run)
         db.commit()
 
-        q = db.query(Source).filter(Source.status != "DISABLED")
+        q = db.query(Source).filter(Source.status.notin_(("DISABLED", "SNAPSHOT")))  # snapshots: on-demand only
         if source_ids:
             q = q.filter(Source.id.in_(source_ids))
         sources = q.order_by(Source.id).all()

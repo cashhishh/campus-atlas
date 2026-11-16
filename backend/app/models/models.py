@@ -114,3 +114,15 @@ class QueryLog(Base):
     retrieval_ms = Column(Float)
     total_ms = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LiveLookup(Base):
+    """On-demand lookup cache: one row per college + topic search (24 h reuse)."""
+
+    __tablename__ = "live_lookups"
+    id = Column(Integer, primary_key=True)
+    college_id = Column(String, index=True)
+    topic = Column(String)
+    outcome = Column(String)  # official | nirf | third_party | none
+    result = Column(Text)  # JSON: label, checked, fetched, links
+    created_at = Column(DateTime, default=datetime.utcnow)

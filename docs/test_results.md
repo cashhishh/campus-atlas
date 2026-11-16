@@ -1,8 +1,8 @@
 # CampusAtlas — Test Results
 
-Generated automatically by `pytest` on 2026-11-16 18:50 (offline: temporary DB, no network, no Groq).
+Generated automatically by `pytest` on 2026-11-16 19:09 (offline: temporary DB, no network, no Groq).
 
-**57 / 57 tests passed.**
+**67 / 67 tests passed.**
 
 | Test ID | Module | Description | Expected | Actual | Pass/Fail |
 |---|---|---|---|---|---|
@@ -43,7 +43,7 @@ Generated automatically by `pytest` on 2026-11-16 18:50 (offline: temporary DB, 
 | T35 | Freshness | Fresh / stale / never-checked states | 2h=FRESH, 100h=STALE (72h limit), None=NEVER_CHECKED | FRESH, STALE, NEVER_CHECKED | Pass |
 | T36 | API | GET /health reports status, vector driver and scheduler | 200, status=ok | 200, driver=Local JSON fallback (BM25) | Pass |
 | T37 | API | GET /api/colleges lists the registry incl. new pilot colleges | >= 53 colleges incl. mait, igdtuw, bpit, gtbit | 53 colleges | Pass |
-| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 114 ms | Pass |
+| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 160 ms | Pass |
 | T39 | API / Scheduler | A second run detects an update and links the event to the run | CONTENT_UPDATED event with monitor_run_id; feed shows summary | event #3 linked to run #3 | Pass |
 | T40 | API / Scheduler | Failed source in a run -> run PARTIAL, error counted, source marked missing | status PARTIAL, errors=1, source FETCH_FAILED | PARTIAL, errors=1 | Pass |
 | T41 | API / Scheduler | Concurrent runs are prevented | 409 while a run holds the lock | 409 Conflict | Pass |
@@ -63,6 +63,16 @@ Generated automatically by `pytest` on 2026-11-16 18:50 (offline: temporary DB, 
 | T55 | AI providers | Change summaries use the active provider | summary_mode=gemini when Gemini answers | mode=gemini | Pass |
 | T56 | API | POST /api/web-research: friendly 503 without key; official domains first with key | 503 + message; sources sorted Official → others | 503 without key; mait.ac.in listed first | Pass |
 | T57 | AI providers | A model still returning 429 after its retry is skipped for 60 s | 2nd call goes straight to the fallback model (no repeat 429) | calls=['gemini-busy', 'gemini-busy', 'gemini-ok', 'gemini-ok'] | Pass |
+| T58 | Live lookup | No indexed evidence -> focused crawl of the official domain answers with citations | Label 'Fetched live from msit.in · <date>', Official citation, step=official | Fetched live from msit.in · 16 Nov 2026; cites https://msit.in/fee-structure | Pass |
+| T59 | Live lookup | Official site silent -> the college's row from the official NIRF table | Answer cites the NIRF row (rank 70), label 'Fetched live from nirfindia.org', snapshot source | Fetched live from nirfindia.org · 16 Nov 2026; rank 70 cited; DTU row excluded | Pass |
+| T60 | Live lookup | Official + NIRF silent -> reputable third-party page, badged Unverified | label 'Unverified third-party', THIRD_PARTY citation, confirm-on-official note | Unverified third-party · careers360.com · 16 Nov 2026; badge=Third-party | Pass |
+| T61 | Live lookup | Nothing anywhere -> 'Official sources don't publish this information (checked: …)' + official links | grounded=False, checked list, official links, no LLM answer | Official sources don't publish this information (checked: ipu.ac.in/usict/index.…; 4 official links | Pass |
+| T62 | Live lookup | Same college + topic within 24 h is served from the cache (no re-crawl) | 0 new fetches; live.cached=True | first run 3 fetches, second run 0 | Pass |
+| T63 | Live lookup | Crawler respects the page limit and stays on the official domain | <= 15 pages, no external hosts | 15 pages checked, external skipped | Pass |
+| T64 | Live lookup | Link scoring prefers topic keywords; NIRF parser keeps only the college's row | fee links ranked first; only NSUT row kept with headers | fee PDF ranked first; 1 NIRF row with 'Rank: 70' | Pass |
+| T65 | Live lookup | Probe call (live=false) reports what would be checked and is not logged | live_available.domain set; query log unchanged | live_available={'college_id': 'igdtuw', 'domain': 'igdtuw.ac.in', 'topic': 'hostel'} | Pass |
+| T66 | Live lookup | Live lookup off (LIVE_FETCH_ENABLED=false) keeps the plain refusal | 'Not available in indexed sources.' and no fetches | plain refusal, 0 fetches | Pass |
+| T67 | Live lookup | Comparison / multi-college questions never trigger a crawl | no fetches; no live_available | 0 fetches for a comparison question | Pass |
 
 ## Performance (20 sample queries on the real pilot index)
 

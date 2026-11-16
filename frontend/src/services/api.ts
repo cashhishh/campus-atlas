@@ -14,6 +14,9 @@ export type Citation = {
 export type AskResult = {
   answer: string; sources: Citation[]; mode: 'gemini' | 'groq' | 'extractive' | 'none'; grounded: boolean; intent: string;
   provider?: 'gemini' | 'groq' | 'demo' | 'none'; model?: string | null;
+  answer_label?: string; third_party_note?: string; official_links?: { title: string; url: string }[];
+  live_available?: { college_id: string; domain: string; topic: string };
+  live?: { step: 'official' | 'nirf' | 'third_party' | 'none'; domain: string; cached: boolean; checked?: string[]; fetched?: string[]; elapsed_s?: number };
   college_ids: string[]; notice?: string; demo_notice?: string;
   latency: { retrieval_ms: number; generation_ms: number; total_ms: number };
 };
@@ -45,7 +48,7 @@ const post = <T,>(path: string, body?: unknown) => request<T>(path, { method: 'P
 
 export const api = {
   health: () => fetch('/health').then(r => r.ok ? r.json() : null).catch(() => null),
-  ask: (query: string, college_ids: string[] = []) => post<AskResult>('/ask', { query, college_ids }),
+  ask: (query: string, college_ids: string[] = [], live = true) => post<AskResult>('/ask', { query, college_ids, live }),
   sources: (college_id = '') => request<ApiSource[]>('/sources' + (college_id ? `?college_id=${encodeURIComponent(college_id)}` : '')),
   college: (id: string) => request<any>('/colleges/' + encodeURIComponent(id)),
   updates: (college_id = '') => request<UpdateEvent[]>('/updates' + (college_id ? `?college_id=${encodeURIComponent(college_id)}` : '')),

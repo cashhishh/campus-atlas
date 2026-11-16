@@ -59,4 +59,5 @@ See [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) and [docs/](docs/):
 - Every fact comes from an ingested source and is shown with a citation. Cutoffs, fees, placement figures and ranks are never typed in.
 - Sources that cannot be fetched (IGDTUW's JavaScript-only site, scanned PDFs) stay registered, are marked missing, and questions about them return **"Not available in indexed sources."**
 - The four first-defence sources keep their **DEMO DATA** label. The "Simulate change" button only works on them, and its text says it is simulated.
+- When the index has no answer, CampusAtlas fetches the college's official pages on demand (then NIRF, then a labelled third-party page), ingests them and answers with citations. If nothing is found it says which pages it checked and links to the official site. It never answers from model memory. Disable with `LIVE_FETCH_ENABLED=false`.
 - "Live web research" (Gemini + Google Search) is a clearly labelled, experimental, *not source-grounded* comparison; it lists official domains first.
