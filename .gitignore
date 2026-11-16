@@ -11,3 +11,5 @@ node_modules/
 backend/.venv/
 *.db
 .pytest_cache/
+*.db-journal
+/data/
