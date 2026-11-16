@@ -1,0 +1,1 @@
+import {defineConfig,loadEnv} from 'vite';import react from '@vitejs/plugin-react';import {campusAtlasApi} from '../server/apiPlugin.mjs';export default defineConfig(({mode})=>{const env=loadEnv(mode,process.cwd(),'');return{plugins:[react(),campusAtlasApi({apiKey:env.GROQ_API_KEY,model:env.GROQ_WEB_MODEL||'groq/compound-mini'})],envDir:'..'}})

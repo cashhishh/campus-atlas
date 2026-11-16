@@ -1,0 +1,3 @@
+# Optional enhancements. CampusAtlas automatically falls back to local JSON
+# retrieval and DEMO MODE when these are not installed/configured.
+chromadb>=0.5

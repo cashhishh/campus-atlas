@@ -1,0 +1,3 @@
+# Full installation. For a fast first run, use requirements-core.txt instead.
+-r requirements-core.txt
+chromadb>=0.5
