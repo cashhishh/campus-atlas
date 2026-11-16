@@ -6,7 +6,6 @@ website changes. Usage (from backend/):  .venv\Scripts\python -m scripts.rebuild
 from app.database import Base, engine, init_db
 from app.models import models  # noqa: F401
 from app.services import vector_store
-from scripts.ingest_pilot import __name__ as _  # noqa: F401
 from app.monitoring.scheduler import run_monitoring_cycle
 
 if __name__ == "__main__":
