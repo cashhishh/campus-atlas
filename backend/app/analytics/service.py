@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func
 
+from ..ai import llm
 from ..models.models import College, IngestionEvent, MonitorRun, QueryLog, Source, UpdateEvent
 from ..services.vector_store import count, count_by_source
 from ..verification.rules import classify_source, freshness
@@ -61,6 +62,8 @@ def build_analytics(db, days: int = 14) -> dict:
     q_answered = db.query(QueryLog).filter(QueryLog.answered.is_(True)).count()
     avg_retrieval, avg_total = db.query(func.avg(QueryLog.retrieval_ms), func.avg(QueryLog.total_ms)).one()
     intents = Counter(i for (i,) in db.query(QueryLog.intent).all())
+    provider_names = {"gemini": "Gemini", "groq": "Groq", "extractive": "Demo (extractive)", "none": "No evidence (no AI call)"}
+    providers = Counter(provider_names.get(m, m or "unknown") for (m,) in db.query(QueryLog.mode).all())
 
     runs = db.query(MonitorRun).order_by(MonitorRun.started_at.desc()).limit(10).all()
 
@@ -90,6 +93,9 @@ def build_analytics(db, days: int = 14) -> dict:
         "chunks_by_college": chunks_by_college,
         "top_queries": top_queries,
         "intent_breakdown": dict(intents),
+        "provider_breakdown": dict(providers),
+        "ai_providers": {"order": llm.configured_providers() or ["demo"],
+                         "models": {p: llm.active_model(p) for p in llm.configured_providers()}},
         "recent_runs": [{"id": r.id, "started_at": r.started_at, "status": r.status, "trigger": r.trigger,
                          "sources_checked": r.sources_checked, "changes_found": r.changes_found,
                          "errors": r.errors, "duration_ms": r.duration_ms} for r in runs[::-1]],

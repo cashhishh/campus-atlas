@@ -18,6 +18,8 @@ os.environ.update({
     "CAMPUSATLAS_DATA_DIR": str(_TMP / "data"),
     "MONITOR_ENABLED": "false",
     "GROQ_API_KEY": "",
+    "GEMINI_API_KEY": "",
+    "LLM_PROVIDER": "gemini",
     "VECTOR_DRIVER": "json",
     "STALE_AFTER_HOURS": "72",
 })

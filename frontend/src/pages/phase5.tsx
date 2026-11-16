@@ -29,7 +29,7 @@ export function ChangeFeed() {
       {shown.length ? <div className="feed">{shown.map(u => <article key={u.id} className="feed-item">
         <div className="feed-meta"><span className={'event-type ' + (u.change_type === 'CONTENT_UPDATED' ? 'updated' : 'new')}>{u.change_type === 'CONTENT_UPDATED' ? 'Content updated' : 'New source content'}</span><time title={fmtDate(u.detected_date)}>{timeAgo(u.detected_date)}</time></div>
         <h3><Link to={'/college/' + u.college_id}>{collegeName(u.college_id)}</Link> · <a href={u.source_url || '#'} target="_blank" rel="noreferrer">{u.source_name} <ExternalLink size={11} /></a></h3>
-        <div className="badges"><VerificationBadge v={u.verification} /><DemoBadge show={u.is_demo} /><span className="badge plain">{u.summary_mode === 'groq' ? 'AI summary (Groq)' : 'Diff-based summary'}</span>{u.change_type === 'CONTENT_UPDATED' && <span className="badge plain">+{u.added_count} / −{u.removed_count} passages</span>}</div>
+        <div className="badges"><VerificationBadge v={u.verification} /><DemoBadge show={u.is_demo} /><span className="badge plain">{u.summary_mode === 'gemini' ? 'AI summary (Gemini)' : u.summary_mode === 'groq' ? 'AI summary (Groq)' : 'Diff-based summary'}</span>{u.change_type === 'CONTENT_UPDATED' && <span className="badge plain">+{u.added_count} / −{u.removed_count} passages</span>}</div>
         <p>{u.summary || 'No summary recorded (event created before Phase 5).'}</p>
         {u.change_type === 'CONTENT_UPDATED' && <button className="link-button" onClick={() => toggle(u)}><FileDiff size={13} />{open === u.id ? 'Hide diff' : 'View diff'}</button>}
         {open === u.id && <pre className="diff">{diff[u.id] === undefined ? 'Loading…' : diff[u.id] ? diff[u.id]!.split('\n').map((l, i) => <span key={i} className={l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : ''}>{l + '\n'}</span>) : 'No stored diff for this event.'}</pre>}
@@ -122,7 +122,7 @@ export function AnalyticsPage() {
   return <>
     <Head />
     <div className="metrics metrics-8">{tiles.map(([I, n, l]) => <div key={l}><I /><b>{n}</b><span>{l}</span></div>)}</div>
-    <div className="latency"><Timer size={14} /> Average retrieval {t.avg_retrieval_ms ?? '—'} ms · average end-to-end answer {t.avg_answer_ms ?? '—'} ms · vector store: {t.vector_driver}</div>
+    <div className="latency"><Timer size={14} /> Average retrieval {t.avg_retrieval_ms ?? '—'} ms · average end-to-end answer {t.avg_answer_ms ?? '—'} ms · vector store: {t.vector_driver} · AI: <span className="badge plain">{[...(data.ai_providers?.order || []).filter((p: string) => p !== 'demo').map((p: string) => p === 'gemini' ? 'Gemini' : 'Groq'), 'Demo'].join(' → ')}</span></div>
     <section className="charts">
       <article className="chart-card wide"><h3>Change events, last 14 days</h3><Timeline data={data.timeline} /></article>
       <article className="chart-card"><h3>Source verification</h3><Segmented parts={[{ label: 'Official', value: v['Official'] || 0, color: SERIES.c }, { label: 'Third-party', value: v['Third-party'] || 0, color: SERIES.b }, { label: 'Unverified', value: v['Unverified'] || 0, color: '#a3a29b' }]} />
@@ -130,6 +130,7 @@ export function AnalyticsPage() {
       <article className="chart-card"><h3>Source authority levels</h3><BarList rows={Object.entries(data.authority_breakdown).map(([label, value]) => ({ label: label.replace('_', ' '), value: value as number }))} /></article>
       <article className="chart-card"><h3>Indexed chunks by college</h3><BarList rows={data.chunks_by_college.map((c: any) => ({ label: c.name.length > 28 ? c.name.slice(0, 27) + '…' : c.name, value: c.chunks }))} /></article>
       <article className="chart-card"><h3>Most asked questions</h3>{data.top_queries.length ? <ol className="top-q">{data.top_queries.map((q: any) => <li key={q.query}><span>{q.query}</span><b>{q.count}×</b></li>)}</ol> : <div className="empty">No questions logged yet.</div>}</article>
+      <article className="chart-card"><h3>Answers by AI provider</h3><BarList rows={Object.entries(data.provider_breakdown || {}).map(([label, value]) => ({ label, value: value as number })).sort((a, b) => b.value - a.value)} /></article>
       <article className="chart-card"><h3>Question intents</h3><BarList rows={Object.entries(data.intent_breakdown).map(([label, value]) => ({ label, value: value as number })).sort((a, b) => b.value - a.value)} /></article>
       <article className="chart-card"><h3>Recent monitoring runs</h3><BarList unit=" changed" rows={data.recent_runs.map((r: any) => ({ label: `#${r.id} · ${r.trigger} · ${r.sources_checked} checked`, value: r.changes_found }))} /></article>
     </section>

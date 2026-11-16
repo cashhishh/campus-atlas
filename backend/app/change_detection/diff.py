@@ -2,7 +2,7 @@
 import difflib
 import re
 
-from ..ai import groq_client
+from ..ai import llm
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?|])\s+|\s{2,}|\s+[•·|]\s+")
 
@@ -61,15 +61,15 @@ navigation, dates of page rendering or other boilerplate, say it is a minor/boil
 
 
 def summarize_change(diff: dict, source_name: str, use_llm: bool = True) -> tuple[str, str]:
-    """Return (summary, mode). Uses Groq when configured, otherwise deterministic."""
+    """Return (summary, mode). mode = gemini | groq | deterministic (fallback order set by LLM_PROVIDER)."""
     fallback = deterministic_summary(diff, source_name)
-    if not use_llm or not groq_client.is_configured() or not (diff["added"] or diff["removed"]):
+    if not use_llm or not llm.is_configured() or not (diff["added"] or diff["removed"]):
         return fallback, "deterministic"
     added = "\n".join(f"+ {_clip(a, 300)}" for a in diff["added"][:15])
     removed = "\n".join(f"- {_clip(r, 300)}" for r in diff["removed"][:15])
     try:
-        text = groq_client.chat(SUMMARY_PROMPT, f"SOURCE: {source_name}\nADDED:\n{added or '(none)'}\nREMOVED:\n{removed or '(none)'}",
+        text, provider, _ = llm.generate(SUMMARY_PROMPT, f"SOURCE: {source_name}\nADDED:\n{added or '(none)'}\nREMOVED:\n{removed or '(none)'}",
                                 max_tokens=160, timeout=15)
-        return text.strip(), "groq"
-    except groq_client.GroqUnavailable:
+        return text.strip(), provider
+    except llm.LLMUnavailable:
         return fallback, "deterministic"

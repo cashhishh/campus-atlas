@@ -1,4 +1,5 @@
 import re
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -296,6 +297,37 @@ def ask(p: Ask, db: Session = Depends(get_db)):
 @router.post('/compare')
 def compare(p: Ask, db: Session = Depends(get_db)):
     return answer(p.query, p.college_ids or None, 'comparison', db=db, registry=_registry(db))
+
+
+class WebResearch(BaseModel):
+    question: str
+
+
+OFFICIAL_FIRST = {'OFFICIAL': 0, 'UNVERIFIED': 1, 'THIRD_PARTY': 2}
+
+
+@router.post('/web-research')
+def web_research(p: WebResearch):
+    """EXPERIMENTAL: Gemini + Google Search grounding. Not limited to indexed sources."""
+    from ..ai import gemini_client
+
+    q = re.sub(r'\s+', ' ', p.question or '').strip()[:500]
+    if not q:
+        raise HTTPException(422, 'A question is required.')
+    if not gemini_client.is_configured():
+        raise HTTPException(503, 'Live web research needs a Gemini API key. The source-grounded answer above is unaffected.')
+    started = time.perf_counter()
+    try:
+        r = gemini_client.web_research(q)
+    except gemini_client.GeminiUnavailable:
+        raise HTTPException(503, 'Live web research is temporarily unavailable. Please use the source-grounded answer above.')
+    sources = []
+    for s in r['sources']:
+        domain_url = f"https://{s['domain']}/" if s.get('domain') else s['url']
+        sources.append({**s, 'verification': classify_source(domain_url)})
+    sources.sort(key=lambda s: OFFICIAL_FIRST.get(s['verification']['status'], 3))
+    return {'answer': r['answer'], 'sources': sources, 'provider': 'gemini', 'model': r['model'], 'mode': 'web',
+            'experimental': True, 'latency_ms': round((time.perf_counter() - started) * 1000, 1)}
 
 
 class CompareRequest(BaseModel):

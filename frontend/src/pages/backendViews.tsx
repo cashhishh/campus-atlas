@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, LoaderCircle } from 'lucide-react';
-import { api, ApiSource, CompareEvidence, UpdateEvent, timeAgo } from '../services/api';
+import { api, ApiSource, CompareEvidence, UpdateEvent, WebResearchResult, timeAgo } from '../services/api';
 import { DemoBadge, FreshnessBadge, VerificationBadge } from '../components/badges';
 
 /** Sources for one college with verification + freshness. Shows `children` if the API is offline. */
@@ -43,4 +43,18 @@ export function EvidenceTable({ ids, names, data }: { ids: string[]; names: Reco
       return <td key={id}>{cell?.available ? <><p className="cell-text">{cell.text}</p><a className="cell-source" href={cell.source_url} target="_blank" rel="noreferrer">{cell.source_name} <ExternalLink size={10} /></a> <DemoBadge show={cell.is_demo} /></> : <span className="na">Not available in indexed sources.</span>}</td>;
     })}</tr>)}
   </tbody></table>;
+}
+
+/** Experimental Gemini + Google Search result. Clearly separated from the grounded answer. */
+export function WebResearchCard({ r }: { r: WebResearchResult }) {
+  return <section className="web-research">
+    <div className="answer-label">Live web research <span>Experimental · Gemini + Google Search · not source-grounded</span><small className="latency-inline">{r.model} · {Math.round(r.latency_ms)} ms</small></div>
+    <p>{r.answer}</p>
+    <h3>Web sources (official domains first)</h3>
+    {r.sources.length ? r.sources.map(s => <a className="source" href={s.url} target="_blank" rel="noreferrer" key={s.url}>
+      <div className="badges"><VerificationBadge v={s.verification} /></div>
+      <strong>{s.title}</strong>
+      <span>{s.domain || 'Open source'} <ExternalLink size={12} /></span>
+    </a>) : <div className="empty">Gemini did not return source links for this answer.</div>}
+  </section>;
 }

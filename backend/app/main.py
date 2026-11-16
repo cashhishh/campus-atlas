@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .ai import groq_client
+from .ai import llm
 from .api.routes import router
 from .config import FRONTEND_ORIGINS
 from .database import init_db
@@ -29,4 +29,4 @@ app.include_router(router, prefix='/api')
 @app.get('/health')
 def health():
     return {'status': 'ok', 'product': 'CampusAtlas', 'version': app.version, 'vector_driver': driver_name(),
-            'llm': 'groq' if groq_client.is_configured() else 'extractive (no key)', 'monitor': scheduler_status()}
+            'llm': (llm.configured_providers() or ['demo (no key)'])[0], 'llm_order': llm.configured_providers(), 'monitor': scheduler_status()}

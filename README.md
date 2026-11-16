@@ -38,7 +38,10 @@ If the API is not running, the UI falls back to the first-defence offline mode (
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GROQ_API_KEY` | – | Enables context-only AI answers and AI change summaries. Without it, answers are extractive |
+| `LLM_PROVIDER` | `gemini` | Primary AI provider (`gemini` or `groq`); the other is the fallback, then the grounded demo answer |
+| `GEMINI_API_KEY` | – | Google Gemini key (primary provider + experimental web research) |
+| `GEMINI_MODEL` | `gemini-flash-latest` | Gemini model; missing models fall back to `GEMINI_FALLBACK_MODELS` |
+| `GROQ_API_KEY` | – | Groq fallback for context-only answers and change summaries. Without any key, answers are extractive |
 | `GROQ_MODEL` | – | Preferred Groq model; retired models fall back to `GROQ_FALLBACK_MODELS` automatically |
 | `MONITOR_ENABLED` | `true` | Start the APScheduler monitoring job |
 | `MONITOR_INTERVAL_MINUTES` | `360` | How often every source is re-checked |
@@ -56,4 +59,4 @@ See [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) and [docs/](docs/):
 - Every fact comes from an ingested source and is shown with a citation. Cutoffs, fees, placement figures and ranks are never typed in.
 - Sources that cannot be fetched (IGDTUW's JavaScript-only site, scanned PDFs) stay registered, are marked missing, and questions about them return **"Not available in indexed sources."**
 - The four first-defence sources keep their **DEMO DATA** label. The "Simulate change" button only works on them, and its text says it is simulated.
-- "Live web research" (Groq Compound) is kept as an experimental, clearly labelled, *not source-grounded* comparison.
+- "Live web research" (Gemini + Google Search) is a clearly labelled, experimental, *not source-grounded* comparison; it lists official domains first.

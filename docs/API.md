@@ -8,7 +8,7 @@ Timestamps are UTC ISO-8601. Errors use FastAPI's `{"detail": "..."}` shape.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Status, version, vector driver, LLM mode (`groq` / `extractive (no key)`) and scheduler status |
+| GET | `/health` | Status, version, vector driver, AI provider order (`llm`, `llm_order`) and scheduler status |
 
 ## Colleges
 
@@ -50,7 +50,7 @@ Timestamps are UTC ISO-8601. Errors use FastAPI's `{"detail": "..."}` shape.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/ask` | Body `{query, college_ids?, intent?}`. Returns `{answer, sources[], mode: groq\|extractive\|none, grounded, intent, college_ids, latency{retrieval_ms,generation_ms,total_ms}, notice?, demo_notice?}`. Each source has `index` (S#), `snippet`, `verification`, `freshness`. No evidence → `answer: "Not available in indexed sources."`, `grounded: false`, no LLM call. Every call is logged |
+| POST | `/api/ask` | Body `{query, college_ids?, intent?}`. Returns `{answer, sources[], mode: gemini\|groq\|extractive\|none, provider: gemini\|groq\|demo\|none, model, grounded, intent, college_ids, latency{retrieval_ms,generation_ms,total_ms}, notice?, demo_notice?}`. Each source has `index` (S#), `snippet`, `verification`, `freshness`. No evidence → `answer: "Not available in indexed sources."`, `grounded: false`, no LLM call. Every call is logged |
 | POST | `/api/compare` | Same as `/ask` with intent `comparison` (not logged) |
 | POST | `/api/compare/evidence` | Body `{college_ids: [..≤3]}`. Topic × college table (Programmes, Admissions, Fees, Placements, Campus & facilities, Rankings & accreditation): best indexed sentence + source, or "Not available in indexed sources." 422 if no known college |
 | POST | `/api/recommend` | Body `{branch, location, type, hostel, placement}`. Top 8 colleges with `score`, `max_score` (80) and a `why` list. Branch points are given only when an indexed source mentions the branch |
@@ -70,11 +70,11 @@ Timestamps are UTC ISO-8601. Errors use FastAPI's `{"detail": "..."}` shape.
 | POST | `/api/demo/seed-knowledge` | Ingest the 4 labelled DEMO sources |
 | POST | `/api/demo/sources/{id}/simulate-change` | Append a clearly labelled *simulated* notice to a DEMO source, producing a real `CONTENT_UPDATED` event with diff and summary. 400 for real sources |
 
-## Served by the Vite dev server (not FastAPI)
+## Experimental web research
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/web-research` | Experimental Groq Compound web research, kept from the first defence. Labelled "not source-grounded" in the UI |
+| POST | `/api/web-research` | Body `{question}`. Uses **Gemini + the Google Search grounding tool**, *not* the indexed sources. Returns `{answer, sources:[{title,url,domain,verification}], provider:"gemini", model, experimental:true, latency_ms}`, with official domains listed first. 503 with a friendly message if there is no key or Gemini fails |
 
 ## Example
 

@@ -12,7 +12,8 @@ export type Citation = {
   verification: Verification; freshness: Freshness; last_checked: string | null; last_changed: string | null;
 };
 export type AskResult = {
-  answer: string; sources: Citation[]; mode: 'groq' | 'extractive' | 'none'; grounded: boolean; intent: string;
+  answer: string; sources: Citation[]; mode: 'gemini' | 'groq' | 'extractive' | 'none'; grounded: boolean; intent: string;
+  provider?: 'gemini' | 'groq' | 'demo' | 'none'; model?: string | null;
   college_ids: string[]; notice?: string; demo_notice?: string;
   latency: { retrieval_ms: number; generation_ms: number; total_ms: number };
 };
@@ -27,6 +28,7 @@ export type MonitorRun = {
   details?: { source_id: number; source_name: string; college_id: string; status: string; summary?: string; error?: string }[];
 };
 export type MonitorStatus = { enabled: boolean; running: boolean; interval_minutes: number; next_run_at: string | null; check_in_progress: boolean; stale_after_hours: number; last_run: MonitorRun | null };
+export type WebResearchResult = { answer: string; provider: string; model: string; latency_ms: number; sources: { title: string; url: string; domain: string; verification: Verification }[] };
 export type EvidenceCell = { available: boolean; text: string; source_name?: string; source_url?: string; is_demo?: boolean };
 export type CompareEvidence = { topics: string[]; colleges: Record<string, Record<string, EvidenceCell>> };
 
@@ -54,6 +56,7 @@ export const api = {
   simulateChange: (id: number) => post<any>(`/demo/sources/${id}/simulate-change`),
   ingestionEvents: () => request<any[]>('/ingestion-events'),
   analytics: () => request<any>('/analytics'),
+  webResearch: (question: string) => post<WebResearchResult>('/web-research', { question }),
   compareEvidence: (college_ids: string[]) => post<CompareEvidence>('/compare/evidence', { college_ids }),
 };
 

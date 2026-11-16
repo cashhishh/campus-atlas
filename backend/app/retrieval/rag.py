@@ -7,7 +7,7 @@ the response is "Not available in indexed sources."
 import re
 import time
 
-from ..ai import groq_client
+from ..ai import groq_client, llm  # noqa: F401  (groq_client kept for backward-compatible imports)
 from ..change_detection.diff import passages
 from ..config import MIN_RELEVANCE
 from ..services.vector_store import query, tokenize
@@ -113,6 +113,7 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
 
     if not hits:  # grounding rule: no context -> no generation
         return {**base, "answer": NOT_AVAILABLE, "sources": [], "mode": "none", "grounded": False,
+                "provider": "none", "model": None,
                 "latency": {"retrieval_ms": round(retrieval_ms, 1), "generation_ms": 0.0,
                             "total_ms": round((time.perf_counter() - started) * 1000, 1)}}
 
@@ -125,19 +126,23 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
             sources.append(_source_view(hit["metadata"], db, labels[sid], hit["text"], hit["score"]))
 
     gen_started = time.perf_counter()
-    mode, notice = "extractive", None
+    mode, notice, model = "extractive", None, None
     text = None
-    if use_llm and groq_client.is_configured():
+    if use_llm and llm.is_configured():
         blocks = "\n\n".join(f"[S{labels[h['metadata']['source_id']]}] {h['metadata'].get('source_name')}\n{h['text']}" for h in context)
         try:
-            text, mode = groq_client.chat(GROUNDED_PROMPT, f"QUESTION: {question}\n\nSOURCES:\n{blocks}", max_tokens=350), "groq"
-        except groq_client.GroqUnavailable as exc:
+            text, mode, failed = llm.generate(GROUNDED_PROMPT, f"QUESTION: {question}\n\nSOURCES:\n{blocks}", max_tokens=350)
+            model = llm.active_model(mode)
+            if failed:
+                notice = f"Primary AI provider unavailable ({failed[0]}); answered by {mode.title()} from the same sources."
+        except llm.LLMUnavailable as exc:
             notice = f"AI model unavailable ({exc}); showing an extractive answer from the same sources."
     if text is None:
         text = "Relevant passages from the indexed sources: " + _extractive(found["search_text"], context, labels)
     generation_ms = (time.perf_counter() - gen_started) * 1000
     grounded = NOT_AVAILABLE.lower().rstrip(".") not in text.lower()
     result = {**base, "answer": text, "sources": sources if grounded else [], "mode": mode, "grounded": grounded,
+              "provider": mode if mode in ("gemini", "groq") else "demo", "model": model,
               "latency": {"retrieval_ms": round(retrieval_ms, 1), "generation_ms": round(generation_ms, 1),
                           "total_ms": round((time.perf_counter() - started) * 1000, 1)}}
     if notice:

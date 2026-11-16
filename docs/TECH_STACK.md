@@ -21,16 +21,21 @@ These are the versions installed and tested on 16 Nov 2026. Backend versions com
 | difflib (stdlib) | Python 3.12 | Passage-level diffs between content versions |
 | hashlib (stdlib) | Python 3.12 | SHA-256 content hashes for change detection |
 | concurrent.futures (stdlib) | Python 3.12 | Parallel fetching during a monitoring run |
-| pytest | 9.2.0 | 48 automated tests and the generated results table |
+| google-genai (Google Gen AI SDK) | 3.3.0 | Official Gemini client: primary AI provider for grounded answers and change summaries; Google Search grounding tool for the experimental web research |
+| pytest | 9.2.0 | 56 automated tests and the generated results table |
 | ChromaDB (optional) | ≥ 0.5 (`requirements-ai.txt`) | Semantic vector store, used automatically when installed; otherwise the JSON + BM25 store |
 
 ## AI
 
+The provider chain is **Gemini → Groq → grounded demo (extractive) answer**. Set `LLM_PROVIDER=groq` to make Groq primary. Every provider receives the same strict grounding prompt and must cite sources as [S1], [S2] …
+
 | Service / model | Purpose |
 |---|---|
-| Groq Cloud API (OpenAI-compatible chat completions) | Context-only answers and change summaries |
-| `qwen/qwen3.8-27b` (active), fallbacks `openai/gpt-oss-120b`, `openai/gpt-oss-20b` | Chosen automatically when the configured `GROQ_MODEL` is retired |
-| `groq/compound-mini` | Experimental web-research mode, kept from the first defence and labelled "not source-grounded" |
+| Google Gemini API via `google-genai` (primary) | Context-only answers and change summaries. Default `GEMINI_MODEL=gemini-flash-latest` (the current Flash model), with fallbacks `gemini-2.5-flash`, `gemini-2.0-flash`. One short retry on 429 / timeout / 5xx, then fallback |
+| Gemini + Google Search grounding tool | Experimental "live web research" button: prefers official domains (.ac.in, .edu.in, .gov.in, nirfindia.org), shows source URLs with verification badges, and is labelled "not source-grounded" |
+| Groq Cloud API (OpenAI-compatible, fallback) | Used when Gemini fails or has no key. `qwen/qwen3.8-27b` (active), fallbacks `openai/gpt-oss-120b`, `openai/gpt-oss-20b` |
+| Grounded demo response (no LLM) | Extractive sentences from the retrieved sources with [S#] citations. Used when no provider is available |
+| `groq/compound-mini` (retired from the UI) | First-defence web research. `server/apiPlugin.mjs` is kept in the repo but no longer mounted |
 | BM25 (own implementation) | Keyword relevance ranking in the local chunk store |
 
 ## Frontend (Node v22.17.1)

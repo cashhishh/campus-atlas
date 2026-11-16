@@ -1,0 +1,151 @@
+"""Google Gemini provider (official `google-genai` SDK).
+
+Same contract as groq_client.chat(): return plain text or raise
+GeminiUnavailable, so callers can fall back to Groq and then to the
+deterministic grounded answer. Also provides an experimental web-research
+call that uses the Google Search grounding tool.
+"""
+import os
+import re
+import time
+
+from ..config import env_int
+
+_PLACEHOLDERS = {"", "your_gemini_api_key_here"}
+DEFAULT_MODEL = "gemini-flash-latest"
+DEFAULT_FALLBACKS = "gemini-2.5-flash,gemini-2.0-flash"
+_working_model: str | None = None
+_no_thinking_config: set[str] = set()  # models that reject a thinking budget
+
+
+class GeminiUnavailable(RuntimeError):
+    pass
+
+
+def api_key() -> str:
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    return "" if key in _PLACEHOLDERS else key
+
+
+def is_configured() -> bool:
+    return bool(api_key())
+
+
+def candidate_models() -> list[str]:
+    configured = os.getenv("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
+    ordered = [_working_model, configured, *os.getenv("GEMINI_FALLBACK_MODELS", DEFAULT_FALLBACKS).split(",")]
+    seen, out = set(), []
+    for m in ordered:
+        m = (m or "").strip()
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+def active_model() -> str | None:
+    return _working_model
+
+
+def _client(timeout_s: float):
+    from google import genai
+    from google.genai import types
+
+    return genai.Client(api_key=api_key(), http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
+
+
+def _config(model: str, system: str, max_tokens: int, temperature: float, tools=None):
+    from google.genai import types
+
+    kwargs = dict(system_instruction=system, temperature=temperature, max_output_tokens=max_tokens)
+    if tools:
+        kwargs["tools"] = tools
+    if model not in _no_thinking_config:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)  # fast, no hidden reasoning
+    return types.GenerateContentConfig(**kwargs)
+
+
+def _status(exc: Exception) -> int | None:
+    return getattr(exc, "code", None)
+
+
+def _call(system: str, user: str, max_tokens: int, temperature: float, timeout: float, tools=None):
+    """Try each candidate model; one short retry on 429 / timeout / 5xx. Returns (response, model)."""
+    global _working_model
+    from google.genai import errors
+
+    if not is_configured():
+        raise GeminiUnavailable("GEMINI_API_KEY is not configured")
+    try:
+        client = _client(timeout)
+    except Exception as exc:
+        raise GeminiUnavailable(f"Gemini client could not start: {type(exc).__name__}") from exc
+    last = "no model available"
+    for model in candidate_models():
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=user, config=_config(model, system, max_tokens, temperature, tools))
+                _working_model = model
+                return response, model
+            except errors.APIError as exc:
+                code, msg = _status(exc), str(exc).lower()
+                if code == 400 and "thinking" in msg and model not in _no_thinking_config:
+                    _no_thinking_config.add(model)  # model does not accept a thinking budget: retry without
+                    continue
+                if code == 404 or (code == 400 and "model" in msg and ("not found" in msg or "not supported" in msg)):
+                    last = f"model {model} unavailable"
+                    break  # try next model
+                if code in (429, 500, 502, 503, 504) and attempt == 0:
+                    time.sleep(env_int("GEMINI_RETRY_SECONDS", 2))
+                    continue
+                raise GeminiUnavailable(f"Gemini returned HTTP {code}") from exc
+            except Exception as exc:  # timeouts / network errors raised by the HTTP layer
+                if attempt == 0 and "timeout" in type(exc).__name__.lower() + str(exc).lower():
+                    continue
+                raise GeminiUnavailable(f"Gemini request failed: {type(exc).__name__}") from exc
+    raise GeminiUnavailable(last)
+
+
+def _text(response) -> str:
+    try:
+        text = response.text or ""
+    except Exception:
+        text = ""
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
+    if not text:
+        raise GeminiUnavailable("Gemini returned an empty answer")
+    return text
+
+
+def chat(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1, timeout: float = 25.0) -> str:
+    response, _ = _call(system, user, max_tokens, temperature, timeout)
+    return _text(response)
+
+
+WEB_SYSTEM = """You are CampusAtlas web research (EXPERIMENTAL). Use Google Search to answer questions about
+Indian colleges. Prefer official sources: college websites (.ac.in, .edu.in), government sites (.gov.in, .nic.in)
+and NIRF (nirfindia.org). Treat aggregator or review sites as unofficial and say so. Never invent cutoffs, fees,
+placement figures or dates; if sources disagree or you cannot verify, say that. Answer in at most 150 words,
+plain text, no markdown tables."""
+
+
+def web_research(question: str, timeout: float = 30.0) -> dict:
+    """Gemini + Google Search grounding. Returns {answer, sources:[{title, url, domain}], model}."""
+    from google.genai import types
+
+    response, model = _call(WEB_SYSTEM, question, 1024, 0.2, timeout, tools=[types.Tool(google_search=types.GoogleSearch())])
+    answer = _text(response)
+    sources, seen = [], set()
+    try:
+        meta = response.candidates[0].grounding_metadata
+        for chunk in (meta.grounding_chunks or []) if meta else []:
+            web = getattr(chunk, "web", None)
+            if web and web.uri and web.uri not in seen:
+                seen.add(web.uri)
+                title = (web.title or "").strip()
+                domain = getattr(web, "domain", None) or (title if "." in title and " " not in title else "")
+                sources.append({"title": title or web.uri, "url": web.uri, "domain": domain})
+    except (AttributeError, IndexError, TypeError):
+        pass
+    return {"answer": answer, "sources": sources, "model": model}

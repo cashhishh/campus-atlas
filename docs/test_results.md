@@ -1,8 +1,8 @@
 # CampusAtlas — Test Results
 
-Generated automatically by `pytest` on 2026-11-16 18:29 (offline: temporary DB, no network, no Groq).
+Generated automatically by `pytest` on 2026-11-16 18:37 (offline: temporary DB, no network, no Groq).
 
-**48 / 48 tests passed.**
+**56 / 56 tests passed.**
 
 | Test ID | Module | Description | Expected | Actual | Pass/Fail |
 |---|---|---|---|---|---|
@@ -43,7 +43,7 @@ Generated automatically by `pytest` on 2026-11-16 18:29 (offline: temporary DB, 
 | T35 | Freshness | Fresh / stale / never-checked states | 2h=FRESH, 100h=STALE (72h limit), None=NEVER_CHECKED | FRESH, STALE, NEVER_CHECKED | Pass |
 | T36 | API | GET /health reports status, vector driver and scheduler | 200, status=ok | 200, driver=Local JSON fallback (BM25) | Pass |
 | T37 | API | GET /api/colleges lists the registry incl. new pilot colleges | >= 53 colleges incl. mait, igdtuw, bpit, gtbit | 53 colleges | Pass |
-| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 103 ms | Pass |
+| T38 | API / Scheduler | POST /api/monitor/run checks sources and logs the run | Run SUCCESS; 1 checked; run listed in /api/monitor/runs | run #1 SUCCESS, 1 change, 112 ms | Pass |
 | T39 | API / Scheduler | A second run detects an update and links the event to the run | CONTENT_UPDATED event with monitor_run_id; feed shows summary | event #3 linked to run #3 | Pass |
 | T40 | API / Scheduler | Failed source in a run -> run PARTIAL, error counted, source marked missing | status PARTIAL, errors=1, source FETCH_FAILED | PARTIAL, errors=1 | Pass |
 | T41 | API / Scheduler | Concurrent runs are prevented | 409 while a run holds the lock | 409 Conflict | Pass |
@@ -54,6 +54,14 @@ Generated automatically by `pytest` on 2026-11-16 18:29 (offline: temporary DB, 
 | T46 | API | Input validation on sources and compare | Bad URL -> 422; unknown colleges -> 422 | 422, 422 | Pass |
 | T47 | API | POST /api/compare/evidence returns a topic x college table | Topics listed; unavailable cells say 'Not available in indexed sources.' | 1/12 cells with evidence | Pass |
 | T48 | AI client | Groq client retries on 429 and skips retired models | Retired model skipped, 429 retried once, answer returned | calls=['retired/model', 'good/model', 'good/model'] | Pass |
+| T49 | AI providers | Gemini (primary) answers when configured; Groq is not called | provider=gemini, [S1] citation kept, 0 Groq calls | provider=gemini, groq_calls=0 | Pass |
+| T50 | AI providers | Gemini failure (429) falls back to Groq | provider=groq with a notice naming the Gemini failure | provider=groq; notice mentions 429 | Pass |
+| T51 | AI providers | No API keys -> grounded demo (extractive) response | provider=demo, mode=extractive, cites [S1], no notice | provider=demo, mode=extractive | Pass |
+| T52 | AI providers | Both providers fail -> demo response from the same sources | provider=demo with notice; still grounded | demo fallback with notice | Pass |
+| T53 | AI providers | LLM_PROVIDER=groq makes Groq primary | order = [groq, gemini] | groq→gemini / gemini→groq | Pass |
+| T54 | AI providers | Gemini SDK call retries once on 429 and skips a missing model | 404 model skipped, 429 retried, text returned | calls=['gemini-missing', 'gemini-good', 'gemini-good'] | Pass |
+| T55 | AI providers | Change summaries use the active provider | summary_mode=gemini when Gemini answers | mode=gemini | Pass |
+| T56 | API | POST /api/web-research: friendly 503 without key; official domains first with key | 503 + message; sources sorted Official → others | 503 without key; mait.ac.in listed first | Pass |
 
 ## Performance (20 sample queries on the real pilot index)
 
