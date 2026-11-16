@@ -28,7 +28,7 @@ export function campusAtlasApi({ apiKey, model }) {
   return {
     name: 'campusatlas-groq-api',
     configureServer(server) {
-      server.middlewares.use('/api/ask', async (req, res, next) => {
+      server.middlewares.use('/api/web-research', async (req, res, next) => {
         if (req.method !== 'POST') return next();
         try {
           const payload = await readJson(req);

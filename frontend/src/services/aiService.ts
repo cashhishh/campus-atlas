@@ -11,7 +11,7 @@ export async function askCampusAtlas(q:string):Promise<Answer>{
  const request=prepareResearchRequest(q);
  try{
   const context=hits.map(hit=>({content:hit.content.slice(0,1600),sourceName:hit.sourceName,sourceUrl:hit.sourceUrl,authorityLevel:hit.authorityLevel}));
-  const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:request.query,context})});
+  const r=await fetch('/api/web-research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:request.query,context})});
   if(!r.ok)throw new Error('Research API unavailable');
   const data=await r.json();
   return{answer:data.answer,sources:data.sources?.length?data.sources:sourceList(hits),mode:data.mode==='live'?'live':'demo'};
