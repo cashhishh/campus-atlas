@@ -125,7 +125,7 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
         except groq_client.GroqUnavailable as exc:
             notice = f"AI model unavailable ({exc}); showing an extractive answer from the same sources."
     if text is None:
-        text = _extractive(found["search_text"], context, labels)
+        text = "Relevant passages from the indexed sources: " + _extractive(found["search_text"], context, labels)
     generation_ms = (time.perf_counter() - gen_started) * 1000
     grounded = NOT_AVAILABLE.lower().rstrip(".") not in text.lower()
     result = {**base, "answer": text, "sources": sources if grounded else [], "mode": mode, "grounded": grounded,

@@ -106,3 +106,26 @@ def test_llm_failure_fallback(corpus, monkeypatch, actual):
     r = rag.answer("Does GTBIT offer ECE?")
     assert r["mode"] == "extractive" and "notice" in r and "[S1]" in r["answer"]
     actual("fallback extractive + notice")
+
+
+class _Resp:
+    def __init__(self, status, body=None, text=""):
+        self.status_code, self._body, self.text, self.headers = status, body or {}, text, {"retry-after": "0"}
+
+    def json(self):
+        return self._body
+
+
+@pytest.mark.meta("T48", "AI client", "Groq client retries on 429 and skips retired models", "Retired model skipped, 429 retried once, answer returned")
+def test_groq_retry_and_model_fallback(monkeypatch, actual):
+    monkeypatch.setattr(groq_client, "groq_api_key", lambda: "test-key")
+    monkeypatch.setattr(groq_client, "_working_model", None)
+    monkeypatch.setattr(groq_client, "groq_model", lambda: "retired/model")
+    monkeypatch.setenv("GROQ_FALLBACK_MODELS", "good/model")
+    calls = []
+    replies = iter([_Resp(404, text='{"error":{"code":"model_not_found","message":"The model does not exist"}}'),
+                    _Resp(429), _Resp(200, {"choices": [{"message": {"content": "<think>x</think>Answer [S1]"}}]})])
+    monkeypatch.setattr(groq_client, "_post", lambda key, model, *a: calls.append(model) or next(replies))
+    assert groq_client.chat("s", "u") == "Answer [S1]"
+    assert calls == ["retired/model", "good/model", "good/model"] and groq_client.active_model() == "good/model"
+    actual(f"calls={calls}")
