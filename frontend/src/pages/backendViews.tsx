@@ -16,7 +16,7 @@ export function LiveSources({ id, children }: { id: string; children: React.Reac
     {data.sources.length ? data.sources.map(s => <a className="source" href={s.source_url} target="_blank" rel="noreferrer" key={s.id}>
       <div className="badges"><VerificationBadge v={s.verification} /><FreshnessBadge f={s.freshness} lastChecked={s.last_checked} /><DemoBadge show={s.is_demo} /></div>
       <strong>{s.source_name}</strong>
-      <span>{s.status === 'FETCH_FAILED' ? 'Could not be fetched — marked missing' : `Last changed ${timeAgo(s.last_changed)} · ${s.chunks ?? 0} chunks`} <ExternalLink size={12} /></span>
+      <span>{s.status === 'FETCH_FAILED' ? (s.chunks ? 'Last check failed — earlier indexed version still used' : 'Could not be fetched — marked missing') : `Last changed ${timeAgo(s.last_changed)} · ${s.chunks ?? 0} chunks`} <ExternalLink size={12} /></span>
     </a>) : <p className="aside-copy">No configured sources yet.</p>}
     <h3 className="aside-title">Recent updates</h3>
     {data.recent_updates.length ? data.recent_updates.map(u => <div className="mini-update" key={u.id}><b>{u.change_type === 'CONTENT_UPDATED' ? 'Updated' : 'New content'} · {timeAgo(u.detected_date)}</b><span>{u.summary?.slice(0, 160)}</span></div>) : <p className="aside-copy">No changes detected yet.</p>}

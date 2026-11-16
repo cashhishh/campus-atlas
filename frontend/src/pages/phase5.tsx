@@ -62,7 +62,7 @@ export function MonitorPanel() {
         <td><FreshnessBadge f={s.freshness} lastChecked={s.last_checked} /></td>
         <td>{timeAgo(s.last_changed)}</td>
         <td>{s.chunks ?? 0}</td>
-        <td>{s.status === 'FETCH_FAILED' ? <span className="badge stale" title={s.last_error || ''}>Missing · fetch failed</span> : <span className="badge plain">{s.status.replace('_', ' ')}</span>}</td>
+        <td>{s.status === 'FETCH_FAILED' ? <span className="badge stale" title={s.last_error || ''}>{s.chunks ? 'Last check failed' : 'Missing · no text'}</span> : <span className="badge plain">{s.status.replace('_', ' ')}</span>}</td>
         <td>{s.is_demo && <button className="link-button" disabled={busy} onClick={() => simulate(s.id)} title="Append a clearly-labelled simulated notice to demonstrate change detection"><Wand2 size={13} />Simulate change</button>}</td>
       </tr>)}
     </tbody></table></div>

@@ -24,7 +24,6 @@ STOPWORDS = {
 }
 SYNONYMS = {
     "ece": ["electronics", "communication"],
-    "cse": ["computer", "science"],
     "eee": ["electrical", "electronics"],
     "aiml": ["artificial", "intelligence", "machine", "learning"],
     "ai": ["artificial", "intelligence"],
@@ -37,6 +36,18 @@ SYNONYMS = {
     "courses": ["course", "programme"],
     "btech": ["b", "tech"],
     "ranking": ["rank", "nirf"],
+    "rank": ["ranking", "nirf", "band"],
+    "recruit": ["recruiter", "placement", "company"],
+    "recruits": ["recruiter", "placement", "company"],
+    "recruiters": ["recruit", "placement", "company"],
+    "companies": ["company", "recruiter", "placement"],
+    "salary": ["package", "ctc", "median"],
+    "package": ["salary", "ctc", "lpa"],
+    "intake": ["seat", "seats"],
+    "seats": ["intake"],
+    "accredited": ["accreditation", "naac", "nba"],
+    "hostel": ["hostel", "accommodation"],
+    "cse": ["computer", "science"],
 }
 
 
