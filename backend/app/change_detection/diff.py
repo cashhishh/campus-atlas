@@ -69,7 +69,7 @@ def summarize_change(diff: dict, source_name: str, use_llm: bool = True) -> tupl
     removed = "\n".join(f"- {_clip(r, 300)}" for r in diff["removed"][:15])
     try:
         text, provider, _ = llm.generate(SUMMARY_PROMPT, f"SOURCE: {source_name}\nADDED:\n{added or '(none)'}\nREMOVED:\n{removed or '(none)'}",
-                                max_tokens=160, timeout=15)
+                                max_tokens=220, timeout=15, prefer=llm.task_provider("summary"))
         return text.strip(), provider
     except llm.LLMUnavailable:
         return fallback, "deterministic"
