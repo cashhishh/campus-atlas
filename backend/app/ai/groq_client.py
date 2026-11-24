@@ -44,12 +44,28 @@ def active_model() -> str | None:
     return _working_model
 
 
+_no_options: set[str] = set()  # models that rejected the reasoning options below
+
+
 def _model_options(model: str) -> dict:
+    """Reasoning tokens count against max_tokens: hidden reasoning was the main cause of answers
+    that stopped half-way. Turn it off (qwen) or keep it minimal (gpt-oss)."""
+    if model in _no_options:
+        return {}
     if model.startswith("qwen/"):
-        return {"reasoning_format": "hidden"}
+        return {"reasoning_effort": "none"}
     if model.startswith("openai/gpt-oss"):
         return {"reasoning_effort": "low"}
     return {}
+
+
+def complete_sentences(text: str) -> str:
+    """Trim a cut-off answer back to its last complete sentence / bullet."""
+    text = text.rstrip()
+    if not text or re.search(r"[.!?)\]]\s*$|\[S\d+\]\s*$", text):
+        return text
+    cut = max(text.rfind(". "), text.rfind(".\n"), text.rfind("? "), text.rfind("! "), text.rfind("\n- "), text.rfind("]\n"))
+    return text[:cut + 1].rstrip() if cut > len(text) * 0.4 else text + "…"
 
 
 def _clean(content: str) -> str:
@@ -76,12 +92,22 @@ def chat(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1
         raise GroqUnavailable("GROQ_API_KEY is not configured")
     last_error = "no model available"
     for model in candidate_models():
-        for attempt in range(2):  # one retry on rate limiting (HTTP 429)
+        budget = max_tokens
+        for attempt in range(4):  # retry on 429, on rejected reasoning options and once on truncation
             try:
-                response = _post(key, model, system, user, max_tokens, temperature, timeout)
+                response = _post(key, model, system, user, budget, temperature, timeout)
             except httpx.HTTPError as exc:
                 raise GroqUnavailable(f"Groq request failed: {type(exc).__name__}") from exc
-            if response.status_code != 429 or attempt == 1:
+            if response.status_code == 400 and "reasoning" in response.text.lower() and model not in _no_options:
+                _no_options.add(model)
+                continue
+            if response.status_code == 200:
+                choice = (response.json().get("choices") or [{}])[0]
+                if choice.get("finish_reason") == "length" and budget < 2400 and attempt < 3:
+                    budget = min(2400, budget * 2)  # answer was cut off: ask again with room to finish
+                    continue
+                break
+            if response.status_code != 429 or attempt >= 2:
                 break
             try:
                 wait = min(3.0, float(response.headers.get("retry-after", 1.5)))
@@ -94,7 +120,7 @@ def chat(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1
             continue
         if response.status_code != 200:
             raise GroqUnavailable(f"Groq returned HTTP {response.status_code}")
-        content = _clean((response.json().get("choices") or [{}])[0].get("message", {}).get("content") or "")
+        content = complete_sentences(_clean((response.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""))
         if not content:
             raise GroqUnavailable("Groq returned an empty answer")
         _working_model = model

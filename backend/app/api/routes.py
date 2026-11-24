@@ -290,11 +290,76 @@ def _log_query(db, p: Ask, result: dict):
 
 _PROBES: dict = {}  # probe results reused by the live follow-up request (2 min)
 
+# Questions the index can never answer well (yearly counselling data): go straight to cited web search.
+WEB_FIRST = re.compile(r"\d+(\.\d+)?\s*(percentile|%ile|ile\b)|\b(teachers?|faculty|professors?|teaching|fests?|clubs?|societ(y|ies)|"
+                       r"campus life|life at|crowd|attendance|culture|girls|gender ratio|canteen|food|mess|ragging|"
+                       r"hostel life|vibe|environment|strict|reviews?|students say|"
+                       r"cut\s?-?offs?|closing rank|opening rank|josaa|jac delhi|"
+                       r"counsell?ing (date|schedule)|last date|deadline|latest|this year|2026|2027)\b", re.I)
+
+
+def _web_fallback(p: 'Ask', result: dict, force: bool = False) -> dict:
+    """Tier 3: cited live web search when the index (and the official-site crawl) cannot answer fully."""
+    from ..ai import web
+
+    if not web.enabled() or result.get('mode') == 'assistant':
+        return result
+    if not (force or not result.get('grounded') or result.get('partial')):
+        return result
+    started = time.perf_counter()
+    keep = result.get('sources') if result.get('grounded') else []
+    keep = keep or []
+    local = ''
+    if result.get('grounded'):
+        local = f"Indexed answer so far: {result.get('answer', '')[:900]}\n" + "\n".join(
+            f"- {s.get('source_name')}: {(s.get('snippet') or '')[:250]}" for s in keep[:5])
+    r = web.search(p.query, local)
+    if not r or not r.get('answer'):
+        return result
+    start = max([s.get('index', 0) for s in keep] or [0]) + 1
+    views = web.citation_views(r.get('sources') or [], start)
+    text = web.add_markers(r['answer'], r.get('supports') or [], start)
+    official = sum(v['verification']['status'] == 'OFFICIAL' for v in views)
+    out = {**result, 'answer': text, 'sources': keep + views, 'grounded': True, 'mode': 'web', 'web': True,
+           'provider': r['provider'], 'model': r.get('model'),
+           'answer_label': ('Live web search · Google Search' if r['provider'] == 'gemini' else 'Live web search · Groq Compound')
+                           + (f' · {official} official source' + ('s' if official != 1 else '') if official else ''),
+           'notice': ('Not fully covered by CampusAtlas\'s indexed official pages, so this answer adds a live web search. '
+                      'Each source is badged Official / Third-party — check the official ones before you decide.')}
+    for k in ('partial', 'live_available', 'demo_notice'):
+        out.pop(k, None)
+    gen = round((time.perf_counter() - started) * 1000, 1)
+    lat = dict(result.get('latency') or {})
+    lat['generation_ms'] = round((lat.get('generation_ms') or 0) + gen, 1)
+    lat['total_ms'] = round((lat.get('total_ms') or 0) + gen, 1)
+    out['latency'] = {'retrieval_ms': lat.get('retrieval_ms', 0.0), **lat}
+    return out
+
+
+_ANSWERS: dict = {}  # finished answers per normalized question: repeat questions cost no API quota
+
+
+def _answer_key(p: 'Ask') -> str:
+    return re.sub(r'\W+', ' ', p.query.lower()).strip() + '|' + ','.join(p.college_ids) + '|' + (p.intent or '')
+
 
 @router.post('/ask')
 def ask(p: Ask, db: Session = Depends(get_db)):
     if not p.query.strip():
         raise HTTPException(422, 'A question is required.')
+    akey = _answer_key(p)
+    hit = _ANSWERS.get(akey)
+    if hit and time.time() - hit[0] < float(__import__('os').getenv('ANSWER_CACHE_HOURS', '6')) * 3600:
+        return {**hit[1], 'cached': True}
+    result = _ask(p, db)
+    if result.get('grounded') and not result.get('live_available'):
+        if len(_ANSWERS) > 500:
+            _ANSWERS.pop(next(iter(_ANSWERS)))
+        _ANSWERS[akey] = (time.time(), result)
+    return result
+
+
+def _ask(p: 'Ask', db: Session):
     registry = _registry(db)
     key = (p.query.strip().lower(), tuple(p.college_ids), p.intent)
     cached = _PROBES.pop(key, None) if p.live else None
@@ -325,7 +390,12 @@ def ask(p: Ask, db: Session = Depends(get_db)):
             refreshed['live'] = {'step': 'official' if report['fetched'] else 'none', 'domain': ', '.join(report['domains']),
                                  'checked': report['checked'], 'fetched': report['fetched'], 'cached': False}
             result = refreshed
-    elif not result['grounded'] and qtype == 'FACT':
+    force_web = bool(WEB_FIRST.search(p.query))
+    if qtype != 'COMPARE' and result.get('mode') != 'assistant' and (force_web or result.get('partial')) and result['grounded']:
+        result = _web_fallback(p, result, force=force_web)
+    elif force_web and qtype != 'COMPARE' and not result['grounded']:
+        result = _web_fallback(p, result, force=True)
+    elif not result['grounded'] and qtype != 'COMPARE':
         if p.live:
             result = live_lookup.resolve(db, p.query, result, registry)
             if not result['grounded'] and result.get('college_ids'):
@@ -335,12 +405,16 @@ def ask(p: Ask, db: Session = Depends(get_db)):
                     result['answer'] = result['answer'] + ' ' + extra
                     result['sources'] = cites.views
                     result['partial'] = True
+            result = _web_fallback(p, result)
         else:
             plan = live_lookup.plan(db, result)
             if plan:
                 _PROBES[key] = (time.time(), dict(result))
                 result['live_available'] = plan  # UI shows "Checking <domain>…" and repeats with live=true
                 return result  # not logged: the follow-up live request is the one that counts
+            result = _web_fallback(p, result)  # no college site to crawl: cited web search
+    elif qtype == 'COMPARE' and force_web:
+        result = _web_fallback(p, result, force=True)  # e.g. "DTU vs NSUT cutoff": keep the table, add web figures
     _log_query(db, p, result)
     return result
 
@@ -408,3 +482,64 @@ class Rec(BaseModel):
 def rec(p: Rec, db: Session = Depends(get_db)):
     return recommend([college(c) for c in db.query(College).all()], p.model_dump(),
                      evidence=lambda cid, text: bool(retrieve(text, [cid])['hits']))
+
+
+REALITY_COLLEGES = ["mait", "msit", "bpit", "gtbit", "dtu", "nsut", "igdtuw", "usict"]
+
+
+def _src_view(src):
+    return {'id': src.id, 'name': src.source_name, 'url': src.source_url, 'verification': classify_source(src.source_url)}
+
+
+@router.get('/reality')
+def reality_index(db: Session = Depends(get_db)):
+    """Colleges with a reality report (pilot set first)."""
+    out = []
+    for c in db.query(College).filter(College.id.in_(REALITY_COLLEGES)).all():
+        out.append({'id': c.id, 'name': c.name, 'city': c.city})
+    out.sort(key=lambda c: REALITY_COLLEGES.index(c['id']))
+    return out
+
+
+@router.get('/reality/{college_id}')
+def reality_route(college_id: str, db: Session = Depends(get_db)):
+    """Ground reality from the college's own NIRF data PDF: placements (placed %, neither %, median trend),
+    teachers (PhD %, ad-hoc %, seniority, student-faculty ratio), student body (gender, out-of-state) and spend."""
+    from ..facts.reality import campus, campus_text, reality, summary_text
+
+    college = db.get(College, college_id)
+    if not college:
+        raise HTTPException(404, 'Unknown college.')
+    r, c = reality(db, college_id), campus(db, college_id)
+    facts = qa_engine.facts_for(db, college_id)
+    nirf = facts.get('nirf_rank') or facts.get('nirf_band')
+    return {
+        'college_id': college_id, 'college': college.name, 'city': college.city,
+        'nirf': ({'text': ('Rank ' if nirf.field == 'nirf_rank' else 'Band ') + nirf.value, 'year': nirf.year} if nirf else None),
+        'placements': ({'rows': r['rows'], 'latest': r['latest'], 'summary': summary_text(r), 'source': _src_view(r['source']),
+                        'highest_package_claim': ({'lakh': r['claim']['lakh'], 'text': r['claim']['text']} if r.get('claim') else None)}
+                       if r else None),
+        'campus': ({k: c.get(k) for k in ('faculty', 'students', 'spend')} | {'summary': campus_text(college.name, c), 'source': _src_view(c['source'])}
+                   if c else None),
+    }
+
+
+@router.get('/reality/{college_id}/life')
+def reality_life(college_id: str, refresh: bool = False, db: Session = Depends(get_db)):
+    """What it is actually like: teachers, attendance, fests & clubs, hostel & food, coding culture.
+    Official pages + student discussions via a cited web search; cached 7 days per college."""
+    from ..ai import web
+    from ..facts.reality import campus, campus_text
+
+    college = db.get(College, college_id)
+    if not college:
+        raise HTTPException(404, 'Unknown college.')
+    if not web.enabled():
+        raise HTTPException(503, 'Campus-life research needs a Gemini or Groq API key.')
+    c = campus(db, college_id)
+    rep = web.life_report(college_id, college.name, college.city or '', campus_text(college.name, c) if c else '', refresh=refresh)
+    if not rep:
+        raise HTTPException(503, 'Web research is busy right now (free-tier limit). Try again in a minute.')
+    sources = [{**s, 'verification': classify_source(f"https://{s['domain']}/" if s.get('domain') else (s.get('url') or ''))}
+               for s in rep['sources']]
+    return {**rep, 'sources': sources, 'labels': dict(web.LIFE_SECTIONS), 'checked_at': datetime.utcfromtimestamp(rep['at'])}

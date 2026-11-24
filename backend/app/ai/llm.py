@@ -16,8 +16,8 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
-def provider_order() -> list[str]:
-    primary = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+def provider_order(prefer: str | None = None) -> list[str]:
+    primary = (prefer or os.getenv("LLM_PROVIDER", "gemini")).strip().lower()
     primary = primary if primary in PROVIDERS else "gemini"
     return [primary] + [p for p in PROVIDERS if p != primary]
 
@@ -34,10 +34,20 @@ def active_model(provider: str) -> str | None:
     return PROVIDERS[provider].active_model() if provider in PROVIDERS else None
 
 
-def generate(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1, timeout: float = 25.0) -> tuple[str, str, list[str]]:
+def task_provider(task: str) -> str | None:
+    """Which provider a task should try first.
+
+    Gemini's free tier is small and is best spent where only Gemini can help (Google Search grounding),
+    so routine text work (understanding the question, writing the cited answer, change summaries)
+    goes to Groq first by default. Override with e.g. ANSWER_PROVIDER=gemini."""
+    return os.getenv(f"{task.upper()}_PROVIDER", "groq").strip().lower() or None
+
+
+def generate(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1, timeout: float = 25.0,
+             prefer: str | None = None) -> tuple[str, str, list[str]]:
     """Return (text, provider, errors). Raises LLMUnavailable when no provider succeeds."""
     errors = []
-    for name in provider_order():
+    for name in provider_order(prefer):
         client = PROVIDERS[name]
         if not client.is_configured():
             continue

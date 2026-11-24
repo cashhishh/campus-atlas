@@ -10,6 +10,7 @@ import re
 import time
 
 from ..facts.nirf_facts import facts_for
+from ..facts.reality import campus, campus_text, reality, summary_text, table_cells
 from ..models.models import College, Source
 from ..retrieval.rag import _source_view, answer, best_snippet, retrieve
 from .understand import TOPIC_QUERY, understand
@@ -83,6 +84,28 @@ def _nirf_cell(cites, facts, cid) -> dict:
     return _snippet_cell(cites, cid, "NIRF rank band ranking", min_rel=0.5, pattern=RANKISH)
 
 
+_REALITY_CACHE: dict = {}
+
+
+def _reality(db, cid):
+    if cid not in _REALITY_CACHE:
+        try:
+            _REALITY_CACHE[cid] = reality(db, cid)
+        except Exception:
+            _REALITY_CACHE[cid] = None
+    return _REALITY_CACHE[cid]
+
+
+def _reality_cell(cites, db, cid, key) -> dict:
+    r = _reality(db, cid)
+    cells = table_cells(r)
+    if key not in cells:
+        return {"text": NOT_IN_SOURCES, "cite": []}
+    text, num = cells[key]
+    n = cites.cite_source(r["source"].id, summary_text(r))
+    return {"text": text, "cite": [n] if n else [], **({"num": num} if num is not None else {})}
+
+
 def _fact_cell(cites, facts, field, fmt) -> dict:
     f = facts.get(field)
     if not f:
@@ -94,15 +117,18 @@ def _fact_cell(cites, facts, field, fmt) -> dict:
 ROWS = {
     "NIRF 2025": lambda c, f, cid: _nirf_cell(c, f, cid),
     "Median UG salary": lambda c, f, cid: _fact_cell(c, f, "median_salary_ug", lambda x: f"{_lakh(x.num)} ({x.year} graduates)"),
+    "Placement rate (reality)": lambda c, f, cid: _reality_cell(c, f["_db"], cid, "placed"),
+    "No job, no higher studies": lambda c, f, cid: _reality_cell(c, f["_db"], cid, "neither"),
+    "Median salary trend": lambda c, f, cid: _reality_cell(c, f["_db"], cid, "trend"),
     "UG intake": lambda c, f, cid: _fact_cell(c, f, "ug_intake", lambda x: f"{int(x.num):,} seats (sanctioned)"),
     "Fees": lambda c, f, cid: _snippet_cell(c, cid, TOPIC_QUERY["fees"], pattern=MONEY, terms="fee fees tuition annual"),
     "Programmes": lambda c, f, cid: _snippet_cell(c, cid, TOPIC_QUERY["academics"]),
     "Placements": lambda c, f, cid: _snippet_cell(c, cid, TOPIC_QUERY["placements"]),
     "Hostel": lambda c, f, cid: _snippet_cell(c, cid, TOPIC_QUERY["hostel"]),
 }
-TOPIC_ROWS = {"placements": ["Median UG salary", "UG intake", "NIRF 2025"], "fees": ["Fees", "Hostel"],
+TOPIC_ROWS = {"placements": ["Median UG salary", "Placement rate (reality)", "No job, no higher studies", "Median salary trend", "NIRF 2025"], "fees": ["Fees", "Hostel"],
               "hostel": ["Hostel", "Fees"], "rankings": ["NIRF 2025"], "academics": ["Programmes", "UG intake"]}
-DEFAULT_ROWS = ["NIRF 2025", "Median UG salary", "Fees", "Programmes", "UG intake"]
+DEFAULT_ROWS = ["NIRF 2025", "Median UG salary", "Placement rate (reality)", "No job, no higher studies", "Fees", "Programmes", "UG intake"]
 
 
 def _rows_for(topics: list[str]) -> list[str]:
@@ -115,7 +141,7 @@ def _rows_for(topics: list[str]) -> list[str]:
 def _table(db, college_ids, row_names, cites, branch_query: str | None = None, branch_terms: str | None = None):
     names = {c.id: c.name for c in db.query(College).filter(College.id.in_(college_ids)).all()}
     table = {"columns": [{"id": cid, "name": names.get(cid, cid)} for cid in college_ids], "rows": []}
-    facts = {cid: facts_for(db, cid) for cid in college_ids}
+    facts = {cid: {**facts_for(db, cid), "_db": db} for cid in college_ids}
     if branch_query:
         terms = branch_terms or branch_query
         table["rows"].append({"aspect": "Branch evidence", "cells": [_snippet_cell(cites, cid, branch_query, min_rel=0.5, terms=terms) for cid in college_ids]})
@@ -139,6 +165,10 @@ def _summary(table) -> str:
             others = ", ".join(f"{short[col]} {cell['text'].split(',')[0].lower()}" for cell, col in zip(row["cells"], cols) if col != best[1] and cell.get("num") is not None)
             if best[0] < max(n for n, _ in nums):
                 wins[best[1]].append(f"NIRF position ({[c for c, col in zip(row['cells'], cols) if col == best[1]][0]['text'].split(',')[0]} vs {others})")
+        elif row["aspect"] == "Placement rate (reality)":
+            best = max(nums)
+            if best[0] > min(n for n, _ in nums):
+                wins[best[1]].append(f"share of graduates actually placed ({best[0]}% vs " + ", ".join(f"{n}%" for n, col in nums if col != best[1]) + ")")
         elif row["aspect"] == "Median UG salary":
             best = max(nums)
             if best[0] > min(n for n, _ in nums):
@@ -193,7 +223,7 @@ def recommend(db, question, qu, started):
     if not ranked:
         return None
     abbrev = {"electronics and communication": "ece", "computer science": "cse", "information technology": "it"}.get(branch or "", "")
-    table = _table(db, ranked, ["NIRF 2025", "Median UG salary"], cites, branch_query, f"{branch or ''} {abbrev}".strip())
+    table = _table(db, ranked, ["NIRF 2025", "Median UG salary", "Placement rate (reality)"], cites, branch_query, f"{branch or ''} {abbrev}".strip())
     names = [c["name"] for c in table["columns"]]
     where = f" in {qu['location'].title()}" if qu.get("location") else ""
     what = f" that list {branch} in their sources" if branch else ""
@@ -206,15 +236,95 @@ def recommend(db, question, qu, started):
                     "grounded": True, "answer_label": "Shortlist from indexed sources · NIRF facts"}, started)
 
 
+FACT_LABELS = {
+    "nirf_rank": lambda f: f"NIRF {f.year} Engineering rank: {f.value}",
+    "nirf_score": lambda f: f"NIRF {f.year} Engineering score: {f.value}",
+    "nirf_band": lambda f: f"NIRF {f.year} Engineering rank band: {f.value}",
+    "median_salary_ug": lambda f: f"Median salary of placed UG (4-year B.Tech) graduates: {_lakh(f.num)} per annum ({f.year} graduates)",
+    "ug_intake": lambda f: f"Sanctioned UG (B.Tech) intake: {int(f.num):,} seats",
+}
+
+
+def fact_hits(db, college_ids: list[str]) -> list[dict]:
+    """Structured NIRF facts as citable context blocks (one per source), so the model can give
+    an evidence-based assessment ("is MAIT good for CSE?") instead of refusing."""
+    hits = []
+    for cid in college_ids[:2]:
+        college = db.get(College, cid)
+        by_source: dict[int, list[str]] = {}
+        for field, f in facts_for(db, cid).items():
+            if field in FACT_LABELS and f.source_id:
+                try:
+                    by_source.setdefault(f.source_id, []).append(FACT_LABELS[field](f))
+                except (TypeError, ValueError):
+                    continue
+        for sid, lines in by_source.items():
+            src = db.get(Source, sid)
+            if not src:
+                continue
+            meta = {"source_id": src.id, "source_name": src.source_name, "source_url": src.source_url,
+                    "authority_level": src.authority_level, "source_type": src.source_type, "college_id": cid,
+                    "document_title": src.source_name, "is_demo": bool(src.is_demo)}
+            name = college.name if college else cid
+            hits.append({"id": f"facts-{cid}-{sid}", "text": f"{name} (official NIRF data). " + ". ".join(lines) + ".",
+                         "metadata": meta, "score": 1.0, "coverage": 1.0})
+        r = _reality(db, cid)
+        if r:
+            src = r["source"]
+            meta = {"source_id": src.id, "source_name": src.source_name, "source_url": src.source_url,
+                    "authority_level": src.authority_level, "source_type": src.source_type, "college_id": cid,
+                    "document_title": src.source_name, "is_demo": bool(src.is_demo)}
+            hits.insert(0, {"id": f"facts-reality-{cid}", "text": summary_text(r), "metadata": meta, "score": 1.0, "coverage": 1.0})
+        try:
+            c = campus(db, cid)
+        except Exception:
+            c = None
+        if c:
+            src = c["source"]
+            meta = {"source_id": src.id, "source_name": src.source_name, "source_url": src.source_url,
+                    "authority_level": src.authority_level, "source_type": src.source_type, "college_id": cid,
+                    "document_title": src.source_name, "is_demo": bool(src.is_demo)}
+            hits.insert(1, {"id": f"facts-campus-{cid}", "text": campus_text(college.name if college else cid, c),
+                            "metadata": meta, "score": 1.0, "coverage": 1.0})
+    return hits
+
+
+GREETING = re.compile(r"^\s*(hi+|hello+|hey+|hii+|helo|namaste|namaskar|yo|good (morning|afternoon|evening)|thanks?( you)?|thank u|ok(ay)?|cool|"
+                      r"who are you|what can you do|help)\s*[!.?]*\s*$", re.I)
+GREETING_ANSWER = ("Hi! I'm CampusAtlas — I answer questions about engineering colleges from their official pages, "
+                   "NIRF data and counselling sites, and I show the source for every fact.\n"
+                   "Try asking:\n- What is the B.Tech fee at MAIT?\n- DTU vs NSUT for CSE — which is better?\n"
+                   "- Best colleges for ECE in Delhi\n- What was the JoSAA closing rank for DTU CSE?\n"
+                   "- Is MAIT good for CSE?\n- MAIT placement reality — how many actually get placed?")
+
+
+def greeting(question, started):
+    return {"question": question, "intent": "greeting", "college_ids": [], "query_type": "FACT", "answer": GREETING_ANSWER,
+            "sources": [], "grounded": True, "mode": "assistant", "provider": "none", "model": None,
+            "answer_label": "CampusAtlas", "latency": {"retrieval_ms": 0.0, "generation_ms": 0.0,
+                                                        "total_ms": round((time.perf_counter() - started) * 1000, 1)}}
+
+
 def fact(db, question, qu, registry, started, use_llm=True):
     colleges = qu["colleges"] or None
-    merged: dict[str, dict] = {}
-    for q in [question] + [s for s in qu["subqueries"] if s.lower() != question.lower()][:4]:
+    merged: dict[str, dict] = {h["id"]: h for h in fact_hits(db, qu["colleges"] or [])}
+    queries = [question] + [s for s in qu["subqueries"] if s.lower() != question.lower()][:4]
+    try:  # one batched embedding call for all sub-queries instead of one call each (Gemini free tier)
+        from ..retrieval.rag import search_text_for
+        from ..services import embeddings
+        embeddings.prime_queries([search_text_for(q, colleges, registry)[1] for q in queries])
+    except Exception:
+        pass
+    for q in queries:
         for h in retrieve(q, colleges, registry)["hits"]:
             cid = h.get("id") or f"{h['metadata']['source_id']}-{h['text'][:20]}"
             if cid not in merged or h["score"] > merged[cid]["score"]:
                 merged[cid] = h
-    hits = sorted(merged.values(), key=lambda h: -h["score"])[:8]
+    facts_first = [h for h in merged.values() if str(h.get("id", "")).startswith("facts-")]
+    rest = sorted((h for h in merged.values() if h not in facts_first), key=lambda h: -h["score"])
+    hits = (facts_first[:4] + rest)[:8]
+    if not rest and facts_first and qu.get("topics") and not set(qu["topics"]) & {"rankings", "placements"}:
+        hits = []  # facts alone cannot answer e.g. a fee or hostel question: let the live lookup / web search run
     result = answer(question, colleges, qu["type"].lower() if qu["type"] != "FACT" else None, db=db, registry=registry,
                     use_llm=use_llm, hits_override=hits)
     result["query_type"] = qu["type"]
@@ -239,6 +349,8 @@ def related_facts(db, college_ids: list[str], cites: "Citations") -> str:
 
 def ask(db, question: str, registry=None, use_llm: bool = True) -> dict:
     started = time.perf_counter()
+    if GREETING.match(question or ""):
+        return greeting(question, started)
     qu = understand(question, registry, use_llm=use_llm)
     if qu["type"] == "COMPARE":
         return compare(db, question, qu, started)

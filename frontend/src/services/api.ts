@@ -12,7 +12,7 @@ export type Citation = {
   verification: Verification; freshness: Freshness; last_checked: string | null; last_changed: string | null;
 };
 export type AskResult = {
-  answer: string; sources: Citation[]; mode: 'gemini' | 'groq' | 'extractive' | 'none'; grounded: boolean; intent: string;
+  answer: string; sources: Citation[]; mode: 'gemini' | 'groq' | 'extractive' | 'none' | 'web' | 'assistant'; web?: boolean; partial?: boolean; grounded: boolean; intent: string;
   provider?: 'gemini' | 'groq' | 'demo' | 'none'; model?: string | null;
   answer_label?: string; third_party_note?: string; official_links?: { title: string; url: string }[];
   live_available?: { college_id?: string; colleges?: string[]; domain: string; topic: string };
