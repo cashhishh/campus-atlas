@@ -21,6 +21,15 @@ _state = {"ids": [], "index": {}, "matrix": np.zeros((0, DIM), dtype=np.float32)
 _query_cache: OrderedDict = OrderedDict()
 _sync_timer: threading.Timer | None = None
 _disabled_until = 0.0
+_docs_disabled_until = 0.0  # document sync backs off separately, so a quota hit never blocks search
+_daily = {"day": "", "used": 0}  # document chunks embedded today (free-tier guard)
+
+
+def _daily_left() -> int:
+    day = time.strftime("%Y-%m-%d")
+    if _daily["day"] != day:
+        _daily.update(day=day, used=0)
+    return max(0, int(os.getenv("EMBED_DAILY_LIMIT", "800")) - _daily["used"])
 
 
 def _path():
@@ -56,7 +65,7 @@ def _save():
 
 
 def _embed(texts: list[str], task: str) -> np.ndarray:
-    global _disabled_until
+    global _disabled_until, _docs_disabled_until
     from google.genai import types
 
     from ..ai import gemini_client
@@ -67,7 +76,10 @@ def _embed(texts: list[str], task: str) -> np.ndarray:
                                         config=types.EmbedContentConfig(task_type=task, output_dimensionality=DIM))
     except Exception as exc:
         if getattr(exc, "code", None) == 429:
-            _disabled_until = time.time() + 60  # quota: skip semantic search for a minute
+            if task == "RETRIEVAL_DOCUMENT":
+                _docs_disabled_until = time.time() + 3600  # bulk indexing waits an hour; search keeps working
+            else:
+                _disabled_until = time.time() + 60  # quota: skip semantic search for a minute (BM25 still answers)
         _state["last_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
         raise
     m = np.array([e.values for e in r.embeddings], dtype=np.float32)
@@ -83,13 +95,18 @@ def sync(batch: int = 40, patient: bool = False) -> dict:
         _disabled_until = 0.0
     if not enabled():
         return {"status": "disabled"}
+    if not patient and time.time() < _docs_disabled_until:
+        return {"status": "backing-off", "retry_in_s": round(_docs_disabled_until - time.time())}
     with _lock:
         _load()
         chunks = {c["id"]: c for c in all_chunks()}
         keep = [i for i, cid in enumerate(_state["ids"]) if cid in chunks]
         ids = [_state["ids"][i] for i in keep]
         matrix = _state["matrix"][keep] if keep else np.zeros((0, DIM), dtype=np.float32)
-        missing = [cid for cid in chunks if cid not in set(ids)]
+        have = set(ids)
+        missing = [cid for cid in chunks if cid not in have]
+        if not patient:  # free-tier guard: newest sources first, at most EMBED_DAILY_LIMIT chunks a day
+            missing = missing[::-1][:_daily_left()]
         added = 0
         for start in range(0, len(missing), batch):
             part = missing[start:start + batch]
@@ -110,6 +127,7 @@ def sync(batch: int = 40, patient: bool = False) -> dict:
             ids += part
             matrix = np.vstack([matrix, vecs])
             added += len(part)
+            _daily["used"] += len(part)
         _state["ids"], _state["matrix"] = ids, matrix
         _state["index"] = {cid: i for i, cid in enumerate(ids)}
         _save()
@@ -150,6 +168,23 @@ def query_vector(text: str) -> np.ndarray | None:
     if len(_query_cache) > 256:
         _query_cache.popitem(last=False)
     return v
+
+
+def prime_queries(texts: list[str]) -> None:
+    """Embed several search queries in ONE API call (a question fans out into up to 5 sub-queries)."""
+    if not enabled():
+        return
+    todo = list(dict.fromkeys(t.strip().lower() for t in texts if t and t.strip().lower() not in _query_cache))
+    if len(todo) < 2:
+        return
+    try:
+        vecs = _embed(todo, "RETRIEVAL_QUERY")
+    except Exception:
+        return
+    for k, v in zip(todo, vecs):
+        _query_cache[k] = v
+    while len(_query_cache) > 256:
+        _query_cache.popitem(last=False)
 
 
 def similarities(text: str, ids: list[str]) -> dict[str, float] | None:
