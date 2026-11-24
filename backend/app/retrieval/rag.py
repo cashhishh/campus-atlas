@@ -15,21 +15,29 @@ from ..verification.rules import classify_source, freshness
 from .entities import classify_intent, detect_colleges, strip_phrases
 
 NOT_AVAILABLE = "Not available in indexed sources."
-MAX_CONTEXT_CHUNKS = 5
+MAX_CONTEXT_CHUNKS = 6
 
-GROUNDED_PROMPT = """You are CampusAtlas, a source-grounded college information assistant.
-If the sources answer only part of the question, answer that part and say exactly which part is missing.
-Answer ONLY from the numbered SOURCES below. Do not use outside knowledge and never invent
-cutoffs, fees, placement figures, dates or rankings. Cite sources inline as [S1], [S2].
-If the sources contain closely related information (e.g. a dual-degree programme when asked about B.Tech),
-state precisely what they say and what is missing. Only if nothing relevant is present, reply exactly:
-"Not available in indexed sources."
-Be concise (max 120 words), plain text, no markdown tables. Never reveal reasoning."""
+GROUNDED_PROMPT = """You are CampusAtlas, an expert, friendly counsellor for Indian engineering colleges.
+Answer ONLY from the numbered SOURCES below and cite every fact inline as [S1], [S2]. Never use outside
+knowledge and never invent cutoffs, fees, placement figures, dates or rankings.
+- Start with the direct answer in the first sentence, then the key numbers, then one practical tip if useful.
+- For opinion questions ("is X good", "should I join X", "X or Y") do NOT refuse: give a balanced,
+  evidence-based assessment from the cited facts (NIRF rank, median salary, intake, fees, programmes)
+  and name what else the student should weigh.
+- FIELD REALITY: when the question touches placements, packages, ROI, "is X good" or "X vs Y", lead with the
+  official NIRF reality numbers if present (share of graduates actually placed, share with neither a job nor
+  higher studies, median salary and its trend) and, if the college advertises a "highest package", say plainly
+  that it is one student's offer while the median is what a typical placed student gets.
+- If the sources answer only part of the question, answer that part and say exactly which part is missing.
+- If the sources contain closely related information (e.g. a dual-degree programme when asked about B.Tech),
+  state precisely what they say and what is missing.
+- Only if nothing relevant is present, reply exactly: "Not available in indexed sources."
+Reply in the same language and style as the question (English or Hinglish). Max 180 words. Plain text;
+short "- " bullet lines are fine; no markdown headings, tables or bold. Never reveal reasoning."""
 
 
-def retrieve(question: str, college_ids: list[str] | None = None, registry=None, n: int = 8,
-             min_relevance: float | None = None) -> dict:
-    """Detect colleges, build the search text and return relevant hits."""
+def search_text_for(question: str, college_ids=None, registry=None) -> tuple[list[str], str]:
+    """(college scope, text actually searched) for a question."""
     detected, phrases = detect_colleges(question, registry)
     scope = list(college_ids or []) or detected
     search_text = question
@@ -37,6 +45,13 @@ def retrieve(question: str, college_ids: list[str] | None = None, registry=None,
         stripped = strip_phrases(question, phrases)
         if tokenize(stripped):  # keep only content terms once the college filter is applied
             search_text = stripped
+    return scope, search_text
+
+
+def retrieve(question: str, college_ids: list[str] | None = None, registry=None, n: int = 8,
+             min_relevance: float | None = None) -> dict:
+    """Detect colleges, build the search text and return relevant hits."""
+    scope, search_text = search_text_for(question, college_ids, registry)
     hits = query(search_text, scope or None, n=n)
     floor = MIN_RELEVANCE if min_relevance is None else min_relevance
     relevant = [h for h in hits if h.get("coverage", h["score"]) >= floor]
@@ -134,7 +149,8 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
     if use_llm and llm.is_configured():
         blocks = "\n\n".join(f"[S{labels[h['metadata']['source_id']]}] {h['metadata'].get('source_name')}\n{h['text']}" for h in context)
         try:
-            text, mode, failed = llm.generate(GROUNDED_PROMPT, f"QUESTION: {question}\n\nSOURCES:\n{blocks}", max_tokens=350)
+            text, mode, failed = llm.generate(GROUNDED_PROMPT, f"QUESTION: {question}\n\nSOURCES:\n{blocks}", max_tokens=900,
+                                                  prefer=llm.task_provider("answer"))
             model = llm.active_model(mode)
             if failed:
                 notice = f"Primary AI provider unavailable ({failed[0]}); answered by {mode.title()} from the same sources."
@@ -145,6 +161,7 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
     generation_ms = (time.perf_counter() - gen_started) * 1000
     grounded = NOT_AVAILABLE.lower().rstrip(".") not in text.lower()
     strong = [h for h in context if h.get("coverage", 0) >= 0.5]
+    partial = not grounded or bool(re.search(r"\b(not (stated|mentioned|provided|available|specified)|do(es)? not (state|mention|provide|specify|contain|give)|don't (state|mention|provide)|missing)\b", text, re.I))
     if not grounded and strong:  # partial evidence: never a bare "not available" when relevant text exists
         text = ("The sources don't state this directly. Most relevant passages: "
                 + _extractive(found["search_text"], strong, labels))
@@ -154,6 +171,8 @@ def answer(question: str, college_ids=None, intent: str | None = "general", db=N
               "provider": mode if mode in ("gemini", "groq") else "demo", "model": model,
               "latency": {"retrieval_ms": round(retrieval_ms, 1), "generation_ms": round(generation_ms, 1),
                           "total_ms": round((time.perf_counter() - started) * 1000, 1)}}
+    if partial:
+        result["partial"] = True  # lets the API add a cited web search for the missing part
     if notice:
         result["notice"] = notice
     if any(s["is_demo"] for s in sources):
