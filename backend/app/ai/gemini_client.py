@@ -133,7 +133,17 @@ def _text(response) -> str:
 def chat(system: str, user: str, max_tokens: int = 500, temperature: float = 0.1, timeout: float = 25.0) -> str:
     timeout = max(10.0, min(timeout, float(os.getenv("GEMINI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_S))))
     response, _ = _call(system, user, max_tokens, temperature, timeout)
-    return _text(response)
+    if _truncated(response) and max_tokens < 2400:  # cut off mid-answer: one retry with more room
+        response, _ = _call(system, user, min(2400, max_tokens * 2), temperature, timeout)
+    from .groq_client import complete_sentences
+    return complete_sentences(_text(response))
+
+
+def _truncated(response) -> bool:
+    try:
+        return "MAX_TOKENS" in str(response.candidates[0].finish_reason)
+    except (AttributeError, IndexError, TypeError):
+        return False
 
 
 WEB_SYSTEM = """You are CampusAtlas web research (EXPERIMENTAL). Use Google Search to answer questions about
@@ -143,23 +153,35 @@ placement figures or dates; if sources disagree or you cannot verify, say that. 
 plain text, no markdown tables."""
 
 
-def web_research(question: str, timeout: float = 30.0) -> dict:
-    """Gemini + Google Search grounding. Returns {answer, sources:[{title, url, domain}], model}."""
+def web_research(question: str, timeout: float = 30.0, system: str | None = None) -> dict:
+    """Gemini + Google Search grounding.
+
+    Returns {answer, sources:[{title, url, domain}], supports:[(end_byte, [source_pos])], model}.
+    `supports` maps each grounded sentence of the answer to positions in `sources` (deduplicated)."""
     from google.genai import types
 
-    response, model = _call(WEB_SYSTEM, question, 1024, 0.2, timeout, tools=[types.Tool(google_search=types.GoogleSearch())],
-                            stop_on_429=True)
+    response, model = _call(system or WEB_SYSTEM, question, 1400, 0.2, timeout,
+                            tools=[types.Tool(google_search=types.GoogleSearch())], stop_on_429=True)
     answer = _text(response)
-    sources, seen = [], set()
+    sources, pos_by_uri, chunk_pos, supports = [], {}, {}, []
     try:
         meta = response.candidates[0].grounding_metadata
-        for chunk in (meta.grounding_chunks or []) if meta else []:
+        for i, chunk in enumerate((meta.grounding_chunks or []) if meta else []):
             web = getattr(chunk, "web", None)
-            if web and web.uri and web.uri not in seen:
-                seen.add(web.uri)
+            if not (web and web.uri):
+                continue
+            if web.uri not in pos_by_uri:
+                pos_by_uri[web.uri] = len(sources)
                 title = (web.title or "").strip()
                 domain = getattr(web, "domain", None) or (title if "." in title and " " not in title else "")
                 sources.append({"title": title or web.uri, "url": web.uri, "domain": domain})
+            chunk_pos[i] = pos_by_uri[web.uri]
+        for sup in (meta.grounding_supports or []) if meta else []:
+            seg = getattr(sup, "segment", None)
+            idx = [chunk_pos[c] for c in (sup.grounding_chunk_indices or []) if c in chunk_pos]
+            if seg is not None and getattr(seg, "end_index", None) and idx:
+                supports.append((seg.end_index, idx))
     except (AttributeError, IndexError, TypeError):
         pass
-    return {"answer": answer, "sources": sources, "model": model}
+    # supports are computed on the raw text; only strip trailing whitespace so offsets stay valid
+    return {"answer": answer, "sources": sources, "supports": supports, "model": model}
