@@ -57,7 +57,8 @@ def rules(question: str, registry=None) -> dict:
 
 
 def _llm(question: str) -> dict | None:
-    text, provider, _ = llm.generate(PROMPT, question, max_tokens=220, temperature=0.0, timeout=10)
+    text, provider, _ = llm.generate(PROMPT, question, max_tokens=300, temperature=0.0, timeout=10,
+                                         prefer=llm.task_provider("understand"))
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         return None
