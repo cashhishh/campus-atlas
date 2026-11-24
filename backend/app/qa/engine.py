@@ -131,11 +131,16 @@ TOPIC_ROWS = {"placements": ["Median UG salary", "Placement rate (reality)", "No
 DEFAULT_ROWS = ["NIRF 2025", "Median UG salary", "Placement rate (reality)", "No job, no higher studies", "Fees", "Programmes", "UG intake"]
 
 
+CORE_ROWS = ["NIRF 2025", "Median UG salary", "Placement rate (reality)", "No job, no higher studies"]
+
+
 def _rows_for(topics: list[str]) -> list[str]:
+    """Core outcome rows always come first (a comparison without rank / salary / placement % is useless),
+    then the rows for the topics the student asked about."""
     rows = []
     for t in topics:
         rows += TOPIC_ROWS.get(t, [])
-    return list(dict.fromkeys(rows)) or DEFAULT_ROWS
+    return list(dict.fromkeys(CORE_ROWS + rows)) if rows else DEFAULT_ROWS
 
 
 def _table(db, college_ids, row_names, cites, branch_query: str | None = None, branch_terms: str | None = None):
