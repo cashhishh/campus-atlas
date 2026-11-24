@@ -23,6 +23,11 @@ os.environ.update({
     "LLM_PROVIDER": "gemini",
     "VECTOR_DRIVER": "json",
     "STALE_AFTER_HOURS": "72",
+    "SEED_RESTORE": "false",
+    "ANSWER_PROVIDER": "gemini",
+    "UNDERSTAND_PROVIDER": "gemini",
+    "SUMMARY_PROVIDER": "gemini",
+    "WEB_FALLBACK": "false",
 })
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
