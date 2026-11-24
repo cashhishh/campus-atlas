@@ -80,6 +80,35 @@ def groq_model() -> str:
 
 
 DATABASE_URL = resolve_db_url(os.getenv("DATABASE_URL") or "sqlite:///./campusatlas.db")
+SEED_DIR = BACKEND_DIR / "seed"
+
+
+def restore_seed() -> bool:
+    """Fresh deployment (Render/Railway free disks are wiped on every restart): copy the pre-built
+    index (registry DB, chunk store, embeddings, NIRF facts) from backend/seed/ so the app answers
+    from the first request instead of re-crawling every source in the background."""
+    import shutil
+
+    if os.getenv("SEED_RESTORE", "true").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if not (SEED_DIR / "chunks.json").exists():
+        return False
+    target = data_dir()
+    chunks = target / "chunks.json"
+    if chunks.exists() and chunks.stat().st_size > 1000:
+        return False  # an index already exists here: never overwrite live data
+    for name in ("chunks.json", "embeddings.npz"):
+        if (SEED_DIR / name).exists():
+            shutil.copyfile(SEED_DIR / name, target / name)
+    if DATABASE_URL.startswith("sqlite:///") and (SEED_DIR / "campusatlas.db").exists():
+        db_path = Path(DATABASE_URL[len("sqlite:///"):])
+        if not db_path.exists() or db_path.stat().st_size < 50_000:  # missing or only empty tables
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SEED_DIR / "campusatlas.db", db_path)
+    return True
+
+
+SEEDED = restore_seed()
 FRONTEND_ORIGINS = [o.strip() for o in os.getenv("FRONTEND_ORIGIN", "http://localhost:5173").split(",") if o.strip()]
 
 # Phase 5 — monitoring and freshness
